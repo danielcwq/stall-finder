@@ -2,7 +2,7 @@ import { useState } from 'react';
 import useLocation from '../hooks/useLocation';
 
 export default function Home() {
-    const { location, error: locError } = useLocation();
+    const { location, error: locError, isLoading } = useLocation();
     const [cuisine, setCuisine] = useState('');
     const [proximity, setProximity] = useState('');
     const [affordability, setAffordability] = useState('');
@@ -16,6 +16,11 @@ export default function Home() {
     const affordabilities = ['$', '$$', '$$$', '$$$$'];
 
     const handleSearch = async () => {
+        if (!location) {
+            setError('Location is required for search. Please allow location access.');
+            return;
+        }
+
         setLoading(true);
         setError(null);
         setResults([]);
@@ -44,14 +49,23 @@ export default function Home() {
         }
     };
 
-    if (locError) return <div className="text-red-500 text-center p-4">{locError}</div>;
-    if (!location) return <div className="text-center p-4">Loading location...</div>;
-
     return (
         <div className="flex flex-col items-center min-h-screen p-4 bg-gray-100">
-            <h1 className="text-2xl font-bold mb-6">Find Food Stalls</h1>
+            <h1 className="text-2xl font-bold mb-6">Hojiak Bo?</h1>
+
+            {locError && (
+                <div className="w-full max-w-md mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
+                    {locError} Search results may be limited without location access.
+                </div>
+            )}
+
+            {isLoading && (
+                <div className="w-full max-w-md mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded">
+                    Requesting your location...
+                </div>
+            )}
+
             <form className="w-full max-w-md space-y-4">
-                {/* Form fields as above */}
                 <select value={cuisine} onChange={(e) => setCuisine(e.target.value)} className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Cuisine">
                     <option value="">Select Cuisine</option>
                     {cuisines.map((c) => <option key={c} value={c}>{c}</option>)}
@@ -72,12 +86,17 @@ export default function Home() {
                     className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     aria-label="Additional comments"
                 />
-                <button type="button" onClick={handleSearch} className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition">
-                    Search
+                <button
+                    type="button"
+                    onClick={handleSearch}
+                    className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition"
+                    disabled={loading}
+                >
+                    {loading ? 'Searching...' : 'Search'}
                 </button>
             </form>
 
-            {loading && <div className="mt-4 text-center">Loading...</div>}
+            {loading && <div className="mt-4 text-center">Loading results...</div>}
             {error && <div className="mt-4 text-red-500 text-center">{error}</div>}
             {results.length > 0 ? (
                 <div className="mt-6 w-full max-w-md space-y-4">

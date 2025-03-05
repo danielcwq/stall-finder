@@ -8,28 +8,47 @@ interface Location {
 const useLocation = () => {
     const [location, setLocation] = useState<Location | null>(null);
     const [error, setError] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
+        let isMounted = true; // Add this flag to track component mount state
+
         if (!navigator.geolocation) {
-            setError('Geolocation is not supported by your browser.');
+            if (isMounted) {
+                setError('Geolocation is not supported by your browser.');
+                setIsLoading(false);
+            }
             return;
         }
 
         console.log('Requesting geolocation...');
-        navigator.geolocation.getCurrentPosition(
-            (position) => {
+
+        const successHandler = (position) => {
+            if (isMounted) {
                 const coords = {
                     latitude: position.coords.latitude,
                     longitude: position.coords.longitude,
                 };
                 console.log('Geolocation obtained:', coords);
                 setLocation(coords);
-            },
-            (err) => {
-                console.error('Geolocation error:', err.message);
-                setError('Please allow location access to proceed.');
+                setIsLoading(false);
             }
-        );
+        };
+
+        const errorHandler = (err) => {
+            if (isMounted) {
+                console.error('Geolocation error:', err.message);
+                setError('Please allow location access for better results.');
+                setIsLoading(false);
+            }
+        };
+
+        navigator.geolocation.getCurrentPosition(successHandler, errorHandler);
+
+        // Cleanup function to prevent state updates after unmount
+        return () => {
+            isMounted = false;
+        };
     }, []);
 
     // Add logging when location changes
@@ -39,7 +58,7 @@ const useLocation = () => {
         }
     }, [location]);
 
-    return { location, error };
+    return { location, error, isLoading };
 };
 
 export default useLocation;
