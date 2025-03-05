@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { trackSearch, trackResultClick } from '../utils/analytics';
 import useLocation from '../hooks/useLocation';
 import SearchTabs from '../components/SearchTabs';
 import FreeSearch from '../components/FreeSearch';
@@ -43,6 +44,9 @@ export default function Home() {
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
             setResults(data);
+
+            // Track the search event
+            trackSearch(query, 'free', data.length);
         } catch (err) {
             setError('An error occurred. Please try again.');
         } finally {
@@ -78,6 +82,13 @@ export default function Home() {
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
             setResults(data);
+
+            // Track the guided search
+            trackSearch(
+                `Cuisine: ${cuisine}, Proximity: ${proximity}, Affordability: ${affordability}, Comments: ${comments}`,
+                'guided',
+                data.length
+            );
         } catch (err) {
             setError('An error occurred. Please try again.');
         } finally {
@@ -158,8 +169,11 @@ export default function Home() {
 
             {results.length > 0 ? (
                 <div className="mt-6 w-full max-w-md space-y-4">
-                    {results.map((stall) => (
-                        <div key={stall.place_id} className="p-4 bg-white rounded-md shadow">
+                    {results.map((stall, index) => (
+                        <div
+                            key={stall.place_id}
+                            className="p-4 bg-white rounded-md shadow"
+                        >
                             <h2 className="text-lg font-semibold">{stall.name}</h2>
                             <p className="text-sm text-gray-600">Distance: {stall.distance.toFixed(2)} km</p>
                             <p className="text-sm text-gray-600">Cuisine: {stall.cuisine}</p>
@@ -180,6 +194,7 @@ export default function Home() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-blue-500 text-sm hover:underline"
+                                onClick={() => trackResultClick(stall.name, index + 1)}
                             >
                                 Source: {stall.source}
                             </a>
