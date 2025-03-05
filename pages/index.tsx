@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import useLocation from '../hooks/useLocation';
+import SearchTabs from '../components/SearchTabs';
+import FreeSearch from '../components/FreeSearch';
 
 export default function Home() {
     const { location, error: locError, isLoading } = useLocation();
@@ -10,12 +12,13 @@ export default function Home() {
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
 
     const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Others'];
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
     const affordabilities = ['$', '$$', '$$$', '$$$$'];
 
-    const handleSearch = async () => {
+    const handleFreeSearch = async (query: string) => {
         if (!location) {
             setError('Location is required for search. Please allow location access.');
             return;
@@ -30,8 +33,41 @@ export default function Home() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    latitude: location?.latitude,
-                    longitude: location?.longitude,
+                    query,
+                    mode: 'free',
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                }),
+            });
+
+            if (!response.ok) throw new Error('Search failed');
+            const data = await response.json();
+            setResults(data);
+        } catch (err) {
+            setError('An error occurred. Please try again.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleGuidedSearch = async () => {
+        if (!location) {
+            setError('Location is required for search. Please allow location access.');
+            return;
+        }
+
+        setLoading(true);
+        setError(null);
+        setResults([]);
+
+        try {
+            const response = await fetch('/api/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    mode: 'guided',
+                    latitude: location.latitude,
+                    longitude: location.longitude,
                     cuisine,
                     proximity,
                     affordability,
@@ -65,39 +101,61 @@ export default function Home() {
                 </div>
             )}
 
-            <form className="w-full max-w-md space-y-4">
-                <select value={cuisine} onChange={(e) => setCuisine(e.target.value)} className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Cuisine">
-                    <option value="">Select Cuisine</option>
-                    {cuisines.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-                <select value={proximity} onChange={(e) => setProximity(e.target.value)} className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Proximity">
-                    <option value="">Select Proximity</option>
-                    {proximities.map((p) => <option key={p} value={p}>{p}</option>)}
-                </select>
-                <select value={affordability} onChange={(e) => setAffordability(e.target.value)} className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" aria-label="Affordability">
-                    <option value="">Select Affordability</option>
-                    {affordabilities.map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
-                <input
-                    type="text"
-                    value={comments}
-                    onChange={(e) => setComments(e.target.value)}
-                    placeholder="Any additional comments"
-                    className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    aria-label="Additional comments"
-                />
-                <button
-                    type="button"
-                    onClick={handleSearch}
-                    className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition"
-                    disabled={loading}
-                >
-                    {loading ? 'Searching...' : 'Search'}
-                </button>
-            </form>
+            <SearchTabs activeTab={activeTab} onTabChange={setActiveTab} />
+
+            {activeTab === 'guided' ? (
+                <form className="w-full max-w-md space-y-4">
+                    <select
+                        value={cuisine}
+                        onChange={(e) => setCuisine(e.target.value)}
+                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        aria-label="Cuisine"
+                    >
+                        <option value="">Select Cuisine</option>
+                        {cuisines.map((c) => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                    <select
+                        value={proximity}
+                        onChange={(e) => setProximity(e.target.value)}
+                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        aria-label="Proximity"
+                    >
+                        <option value="">Select Proximity</option>
+                        {proximities.map((p) => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                    <select
+                        value={affordability}
+                        onChange={(e) => setAffordability(e.target.value)}
+                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        aria-label="Affordability"
+                    >
+                        <option value="">Select Affordability</option>
+                        {affordabilities.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                    <input
+                        type="text"
+                        value={comments}
+                        onChange={(e) => setComments(e.target.value)}
+                        placeholder="Any additional comments"
+                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        aria-label="Additional comments"
+                    />
+                    <button
+                        type="button"
+                        onClick={handleGuidedSearch}
+                        className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition"
+                        disabled={loading}
+                    >
+                        {loading ? 'Searching...' : 'Search'}
+                    </button>
+                </form>
+            ) : (
+                <FreeSearch onSearch={handleFreeSearch} loading={loading} />
+            )}
 
             {loading && <div className="mt-4 text-center">Loading results...</div>}
             {error && <div className="mt-4 text-red-500 text-center">{error}</div>}
+
             {results.length > 0 ? (
                 <div className="mt-6 w-full max-w-md space-y-4">
                     {results.map((stall) => (
