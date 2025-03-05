@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import type { NextApiRequest, NextApiResponse } from 'next';
+import { generateEmbedding } from '../../services/embeddingService';
 import OpenAI from 'openai';
 
 console.log('Environment variables check:', {
@@ -46,15 +47,10 @@ function proximityToKm(proximity: string): number {
 // Hybrid search function
 async function performHybridSearch(query: string, latitude: number, longitude: number) {
     // Generate embedding for semantic search
-    const embeddingResponse = await openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: query,
-    });
+    const embedding = await generateEmbedding(query);
 
-    const embedding = embeddingResponse.data[0].embedding;
-
-    // Perform hybrid search using Supabase
-    const { data: results, error } = await supabase.rpc('match_stalls_hybrid', {
+    // Perform hybrid search using Supabase with the new embedding column
+    const { data: results, error } = await supabase.rpc('match_stalls_hybrid_e5', {
         query_text: query,
         query_embedding: embedding,
         match_threshold: 0.3,
@@ -128,15 +124,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
             // Apply semantic search if comments provided
             if (comments && comments.trim() && filteredStalls.length > 0) {
-                const embeddingResponse = await openai.embeddings.create({
-                    model: "text-embedding-3-small",
-                    input: comments,
-                });
-
-                const embedding = embeddingResponse.data[0].embedding;
+                const embedding = await generateEmbedding(comments);
 
                 const { data: semanticResults, error: semanticError } = await supabase.rpc(
-                    'match_stalls',
+                    'match_stalls_e5',
                     {
                         query_embedding: embedding,
                         match_threshold: 0.3,
