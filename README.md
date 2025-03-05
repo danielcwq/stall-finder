@@ -23,7 +23,7 @@ The application uses a hybrid search approach that combines text-based search wi
   - "spicy" matches with "hot" or "szechuan"
 
 ### 3. Distance Weighting
-Final ranking uses an exponential decay formula: similarity_score exp(-distance / 10)
+Final ranking uses an exponential decay formula: `similarity_score exp(-distance / 10)`
 This means:
 - A restaurant 0km away: No penalty
 - A restaurant 5km away: Score reduced by ~39%
