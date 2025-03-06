@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { trackSearch, trackResultClick } from '../utils/analytics';
 import useLocation from '../hooks/useLocation';
 import SearchTabs from '../components/SearchTabs';
@@ -8,16 +8,39 @@ export default function Home() {
     const { location, error: locError, isLoading } = useLocation();
     const [cuisine, setCuisine] = useState('');
     const [proximity, setProximity] = useState('');
+    const [proximityValue, setProximityValue] = useState(5); // Default to 5km
     const [affordability, setAffordability] = useState('');
+    const [affordabilityValue, setAffordabilityValue] = useState(2); // Default to 2 ($$)
     const [comments, setComments] = useState('');
     const [results, setResults] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
+    const [showExplanation, setShowExplanation] = useState(false);
 
     const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Others'];
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
     const affordabilities = ['$', '$$', '$$$', '$$$$'];
+
+    // Map continuous slider values to discrete backend values
+    useEffect(() => {
+        // Map proximity value (1-25 km) to the closest predefined option
+        if (proximityValue <= 1) {
+            setProximity('1 km');
+        } else if (proximityValue <= 5) {
+            setProximity('5 km');
+        } else if (proximityValue <= 10) {
+            setProximity('10 km');
+        } else {
+            setProximity('25 km');
+        }
+    }, [proximityValue]);
+
+    // Map affordability value (1-4) to price categories
+    useEffect(() => {
+        const index = Math.min(Math.max(Math.floor(affordabilityValue), 0), 3);
+        setAffordability(affordabilities[index]);
+    }, [affordabilityValue, affordabilities]);
 
     const handleFreeSearch = async (query: string) => {
         if (!location) {
@@ -98,7 +121,30 @@ export default function Home() {
 
     return (
         <div className="flex flex-col items-center min-h-screen p-4 bg-gray-100">
-            <h1 className="text-2xl font-bold mb-6">Hojiak Bo?</h1>
+            {/* Static Header with Explanation */}
+            <div className="mb-6 text-center">
+                <h1 className="text-2xl font-bold mb-1">Hojiak Bo?</h1>
+                <button
+                    onClick={() => setShowExplanation(!showExplanation)}
+                    className="text-sm text-blue-600 hover:underline mb-2 flex items-center justify-center mx-auto"
+                >
+                    <span>What does this mean?</span>
+                    <span className="ml-1 transform transition-transform">
+                        {showExplanation ? "↓" : "→"}
+                    </span>
+                </button>
+
+                {showExplanation && (
+                    <div className="bg-white p-3 rounded-md shadow-sm text-sm text-gray-700 mb-3 max-w-md text-justify">
+                        <p>"Hojiak Bo?" is Hokkien for "Is it delicious?"</p>
+                        <p>This app helps you find great food stalls from popular food blogs near you!</p>
+                    </div>
+                )}
+
+                <div className="text-xs text-gray-500">
+                    Made with ❤️ by <a href="https://danielching.me" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Daniel Ching</a>
+                </div>
+            </div>
 
             {locError && (
                 <div className="w-full max-w-md mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
@@ -115,42 +161,80 @@ export default function Home() {
             <SearchTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
             {activeTab === 'guided' ? (
-                <form className="w-full max-w-md space-y-4">
-                    <select
-                        value={cuisine}
-                        onChange={(e) => setCuisine(e.target.value)}
-                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        aria-label="Cuisine"
-                    >
-                        <option value="">Select Cuisine</option>
-                        {cuisines.map((c) => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                    <select
-                        value={proximity}
-                        onChange={(e) => setProximity(e.target.value)}
-                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        aria-label="Proximity"
-                    >
-                        <option value="">Select Proximity</option>
-                        {proximities.map((p) => <option key={p} value={p}>{p}</option>)}
-                    </select>
-                    <select
-                        value={affordability}
-                        onChange={(e) => setAffordability(e.target.value)}
-                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        aria-label="Affordability"
-                    >
-                        <option value="">Select Affordability</option>
-                        {affordabilities.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
-                    <input
-                        type="text"
-                        value={comments}
-                        onChange={(e) => setComments(e.target.value)}
-                        placeholder="Any additional comments"
-                        className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        aria-label="Additional comments"
-                    />
+                <form className="w-full max-w-md space-y-6">
+                    <div>
+                        <label htmlFor="cuisine" className="block text-sm font-medium text-gray-700 mb-1">
+                            Cuisine
+                        </label>
+                        <select
+                            id="cuisine"
+                            value={cuisine}
+                            onChange={(e) => setCuisine(e.target.value)}
+                            className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                            <option value="">Select Cuisine</option>
+                            {cuisines.map((c) => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label htmlFor="proximity" className="block text-sm font-medium text-gray-700 mb-1">
+                            Proximity: {proximityValue.toFixed(1)} km ({proximity})
+                        </label>
+                        <input
+                            id="proximity"
+                            type="range"
+                            min="1"
+                            max="25"
+                            step="0.5"
+                            value={proximityValue}
+                            onChange={(e) => setProximityValue(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>1 km</span>
+                            <span>5 km</span>
+                            <span>10 km</span>
+                            <span>25 km</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label htmlFor="affordability" className="block text-sm font-medium text-gray-700 mb-1">
+                            Price Range: {affordability || 'Select price'}
+                        </label>
+                        <input
+                            id="affordability"
+                            type="range"
+                            min="1"
+                            max="4"
+                            step="0.01"
+                            value={affordabilityValue}
+                            onChange={(e) => setAffordabilityValue(parseFloat(e.target.value))}
+                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                        />
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                            <span>$</span>
+                            <span>$$</span>
+                            <span>$$$</span>
+                            <span>$$$$</span>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label htmlFor="comments" className="block text-sm font-medium text-gray-700 mb-1">
+                            Additional Comments
+                        </label>
+                        <input
+                            id="comments"
+                            type="text"
+                            value={comments}
+                            onChange={(e) => setComments(e.target.value)}
+                            placeholder="Any additional preferences"
+                            className="w-full p-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
                     <button
                         type="button"
                         onClick={handleGuidedSearch}
@@ -164,7 +248,16 @@ export default function Home() {
                 <FreeSearch onSearch={handleFreeSearch} loading={loading} />
             )}
 
-            {loading && <div className="mt-4 text-center">Loading results...</div>}
+            {loading && (
+                <div className="mt-4 text-center">
+                    <div className="mb-2">Cooking...</div>
+                    <img
+                        src="/output-onlinegiftools.gif"
+                        alt="Cooking animation"
+                        className="mx-auto h-16"
+                    />
+                </div>
+            )}
             {error && <div className="mt-4 text-red-500 text-center">{error}</div>}
 
             {results.length > 0 ? (
