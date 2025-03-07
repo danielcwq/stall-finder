@@ -22,18 +22,10 @@ export default function Home() {
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
     const affordabilities = ['$', '$$', '$$$', '$$$$'];
 
-    // Map continuous slider values to discrete backend values
+    // Replace the existing proximity useEffect (lines 25-37) with this:
     useEffect(() => {
-        // Map proximity value (1-25 km) to the closest predefined option
-        if (proximityValue <= 1) {
-            setProximity('1 km');
-        } else if (proximityValue <= 5) {
-            setProximity('5 km');
-        } else if (proximityValue <= 10) {
-            setProximity('10 km');
-        } else {
-            setProximity('25 km');
-        }
+        // Just set the proximity directly as a string with km unit
+        setProximity(`${proximityValue.toFixed(1)} km`);
     }, [proximityValue]);
 
     // Map affordability value (1-4) to price categories
@@ -123,7 +115,7 @@ export default function Home() {
         <div className="flex flex-col items-center min-h-screen p-4 bg-gray-100">
             {/* Static Header with Explanation */}
             <div className="mb-6 text-center">
-                <h1 className="text-2xl font-bold mb-1">Hojiak Bo?</h1>
+                <h1 className="text-2xl font-bold mb-1">Ho Jiak Bo?</h1>
                 <button
                     onClick={() => setShowExplanation(!showExplanation)}
                     className="text-sm text-blue-600 hover:underline mb-2 flex items-center justify-center mx-auto"
@@ -179,7 +171,7 @@ export default function Home() {
 
                     <div>
                         <label htmlFor="proximity" className="block text-sm font-medium text-gray-700 mb-1">
-                            Proximity: {proximityValue.toFixed(1)} km ({proximity})
+                            Proximity: {proximityValue.toFixed(1)} km
                         </label>
                         <input
                             id="proximity"
@@ -191,17 +183,17 @@ export default function Home() {
                             onChange={(e) => setProximityValue(parseFloat(e.target.value))}
                             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                         />
-                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>1 km</span>
-                            <span>5 km</span>
-                            <span>10 km</span>
-                            <span>25 km</span>
+                        <div className="w-full h-6 relative mt-1">
+                            <span className="absolute text-xs text-gray-500" style={{ left: '0%' }}>1 km</span>
+                            <span className="absolute text-xs text-gray-500" style={{ left: 'calc((5 - 1) / (25 - 1) * 100%)' }}>5 km</span>
+                            <span className="absolute text-xs text-gray-500" style={{ left: 'calc((10 - 1) / (25 - 1) * 100%)' }}>10 km</span>
+                            <span className="absolute text-xs text-gray-500" style={{ right: '0' }}>25 km</span>
                         </div>
                     </div>
 
                     <div>
                         <label htmlFor="affordability" className="block text-sm font-medium text-gray-700 mb-1">
-                            Price Range: {affordability || 'Select price'}
+                            Price Range
                         </label>
                         <input
                             id="affordability"
@@ -250,7 +242,6 @@ export default function Home() {
 
             {loading && (
                 <div className="mt-4 text-center">
-                    <div className="mb-2">Cooking...</div>
                     <img
                         src="/output-onlinegiftools.gif"
                         alt="Cooking animation"

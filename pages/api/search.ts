@@ -39,7 +39,7 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 // Convert proximity string to kilometers
 function proximityToKm(proximity: string): number {
     if (!proximity) return Infinity;
-    const value = parseInt(proximity.split(' ')[0]);
+    const value = parseFloat(proximity.split(' ')[0]);
     return value || Infinity;
 }
 
@@ -60,7 +60,8 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
         match_threshold: 0.3,
         match_count: 5,
         user_latitude: latitude,
-        user_longitude: longitude
+        user_longitude: longitude,
+        status_filter: 'open'
     });
 
     if (error) throw error;
@@ -85,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             return res.status(200).json(results);
         } else {
             // Guided search logic
-            let queryBuilder = supabase.from('stalls').select('*');
+            let queryBuilder = supabase.from('stalls').select('*').eq('status', 'open');
 
             if (cuisine) {
                 queryBuilder = queryBuilder.ilike('cuisine', `%${cuisine}%`);
