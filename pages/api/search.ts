@@ -23,6 +23,22 @@ const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
+// Calculate recency score based on publication date
+function calculateRecencyScore(datePublished: string): number {
+    if (!datePublished) return 0;
+
+    const publishDate = new Date(datePublished);
+    const now = new Date();
+
+    // Calculate difference in days
+    const diffTime = now.getTime() - publishDate.getTime();
+    const diffDays = diffTime / (1000 * 3600 * 24);
+
+    // Exponential decay function - adjust the 365 value to control how quickly older entries are penalized
+    // This gives a score of ~0.37 for entries 1 year old, ~0.14 for 2 years old, etc.
+    return Math.exp(-diffDays / 365);
+}
+
 // Haversine formula to calculate distance between two points on Earth
 function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
     const R = 6371; // Radius of the Earth in km
@@ -44,6 +60,8 @@ function proximityToKm(proximity: string): number {
 }
 
 // Hybrid search function
+// Hybrid search function
+// Hybrid search function
 async function performHybridSearch(query: string, latitude: number, longitude: number) {
     // Generate embedding for semantic search
     const embeddingResponse = await openai.embeddings.create({
@@ -60,12 +78,30 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
         match_threshold: 0.3,
         match_count: 5,
         user_latitude: latitude,
-        user_longitude: longitude,
-        status_filter: 'open'
+        user_longitude: longitude
     });
 
     if (error) throw error;
-    return results;
+
+    console.log('Hybrid search results statuses:',
+        results.map(r => ({ id: r.place_id, name: r.name, status: r.status }))
+    );
+
+    // Apply recency scoring to results without filtering by status
+    const resultsWithRecency = results.map(stall => {
+        const recencyScore = calculateRecencyScore(stall.date_published);
+        return {
+            ...stall,
+            recencyScore,
+            // Adjust similarity score to include recency (70% similarity, 30% recency)
+            adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
+        };
+    });
+
+    // Sort by adjusted similarity
+    resultsWithRecency.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
+
+    return resultsWithRecency.slice(0, 5); // Return top 5
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -123,7 +159,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         longitude,
                         stall.latitude,
                         stall.longitude
-                    )
+                    ),
+                    recencyScore: calculateRecencyScore(stall.date_published)
                 }))
                 .filter(stall => stall.distance <= maxDistance);
 
@@ -153,15 +190,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     filteredStalls = filteredStalls.map(stall => ({
                         ...stall,
                         semanticScore: semanticScores.get(stall.place_id) || 0,
-                        adjustedDistance: Number(stall.distance) * (1 - Number(semanticScores.get(stall.place_id) || 0) * 0.5)
+                        // Adjust distance by semantic relevance and recency
+                        // 60% weight to distance, 30% to semantic, 10% to recency
+                        adjustedDistance: Number(stall.distance) *
+                            (1 - (Number(semanticScores.get(stall.place_id) || 0) * 0.3) - (stall.recencyScore * 0.1))
                     }));
 
                     // Sort by adjusted distance
                     filteredStalls.sort((a, b) => a.adjustedDistance - b.adjustedDistance);
                 }
             } else {
-                // Sort by actual distance if no semantic search
-                filteredStalls.sort((a, b) => a.distance - b.distance);
+                // If no semantic search, still consider recency
+                filteredStalls = filteredStalls.map(stall => ({
+                    ...stall,
+                    // 90% weight to distance, 10% to recency
+                    adjustedDistance: Number(stall.distance) * (1 - (stall.recencyScore * 0.1))
+                }));
+
+                // Sort by adjusted distance
+                filteredStalls.sort((a, b) => a.adjustedDistance - b.adjustedDistance);
             }
 
             // Return top 5 results
@@ -173,7 +220,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 affordability: stall.affordability,
                 recommended_dishes: stall.recommended_dishes,
                 source: stall.source,
-                source_url: stall.source_url
+                source_url: stall.source_url,
+                date_published: stall.date_published,
+                recencyScore: stall.recencyScore
             }));
 
             return res.status(200).json(results);
