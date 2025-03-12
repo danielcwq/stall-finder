@@ -59,8 +59,7 @@ function proximityToKm(proximity: string): number {
     return value || Infinity;
 }
 
-// Hybrid search function
-// Hybrid search function
+
 // Hybrid search function
 async function performHybridSearch(query: string, latitude: number, longitude: number) {
     // Generate embedding for semantic search
@@ -71,37 +70,67 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
 
     const embedding = embeddingResponse.data[0].embedding;
 
-    // Perform hybrid search using Supabase
-    const { data: results, error } = await supabase.rpc('match_stalls_hybrid', {
-        query_text: query,
+    // Use match_stalls instead of match_documents
+    const { data: results, error } = await supabase.rpc('match_stalls', {
         query_embedding: embedding,
         match_threshold: 0.3,
-        match_count: 5,
-        user_latitude: latitude,
-        user_longitude: longitude
+        match_count: 10 // Get more results since we're not filtering by distance
     });
 
     if (error) throw error;
 
-    console.log('Hybrid search results statuses:',
-        results.map(r => ({ id: r.place_id, name: r.name, status: r.status }))
-    );
+    // Process results with safe distance calculation
+    const resultsWithDistance = results.map(stall => {
+        let distance = Infinity;
+        let recencyScore = 0;
 
-    // Apply recency scoring to results without filtering by status
-    const resultsWithRecency = results.map(stall => {
-        const recencyScore = calculateRecencyScore(stall.date_published);
+        try {
+            // Only calculate distance if coordinates are valid
+            if (stall.latitude && stall.longitude &&
+                !isNaN(stall.latitude) && !isNaN(stall.longitude) &&
+                !isNaN(latitude) && !isNaN(longitude)) {
+                distance = calculateDistance(
+                    latitude,
+                    longitude,
+                    stall.latitude,
+                    stall.longitude
+                );
+            }
+
+            recencyScore = calculateRecencyScore(stall.date_published);
+        } catch (e) {
+            console.error('Error calculating metrics:', e);
+            // Keep default values if calculation fails
+        }
+
         return {
             ...stall,
-            recencyScore,
+            distance: distance,
+            recencyScore: recencyScore,
             // Adjust similarity score to include recency (70% similarity, 30% recency)
             adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
         };
     });
 
     // Sort by adjusted similarity
-    resultsWithRecency.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
+    resultsWithDistance.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
 
-    return resultsWithRecency.slice(0, 5); // Return top 5
+    // Return top 5 results with all necessary fields
+    return resultsWithDistance.slice(0, 5).map(stall => ({
+        place_id: stall.place_id,
+        name: stall.name,
+        distance: typeof stall.distance === 'number' && stall.distance !== Infinity ?
+            stall.distance : null,
+        cuisine: stall.cuisine,
+        affordability: stall.affordability,
+        recommended_dishes: stall.recommended_dishes,
+        source: stall.source,
+        source_url: stall.source_url,
+        date_published: stall.date_published,
+        recencyScore: stall.recencyScore,
+        review_summary: stall.review_summary,
+        location: stall.location
+    }));
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -222,7 +251,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 source: stall.source,
                 source_url: stall.source_url,
                 date_published: stall.date_published,
-                recencyScore: stall.recencyScore
+                recencyScore: stall.recencyScore,
+                review_summary: stall.review_summary,
+                location: stall.location
             }));
 
             return res.status(200).json(results);

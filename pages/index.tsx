@@ -259,9 +259,49 @@ export default function Home() {
                             className="p-4 bg-white rounded-md shadow"
                         >
                             <h2 className="text-lg font-semibold">{stall.name}</h2>
-                            <p className="text-sm text-gray-600">Distance: {stall.distance.toFixed(2)} km</p>
+                            <p className="text-sm text-gray-600">
+                                {stall.distance !== null ?
+                                    `Distance: ${stall.distance.toFixed(2)} km` :
+                                    "Distance: Not available"}
+                            </p>
                             <p className="text-sm text-gray-600">Cuisine: {stall.cuisine}</p>
                             <p className="text-sm text-gray-600">Price: {stall.affordability}</p>
+
+                            {/* Add location link that opens Google Maps */}
+                            <p className="text-sm text-gray-600">
+                                Location: {stall.location ? (
+                                    <a
+                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(`${stall.name} ${stall.location}`)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-500 hover:underline"
+                                        onClick={() => trackResultClick(`${stall.name} (Location)`, index + 1)}
+                                    >
+                                        {stall.location}
+                                    </a>
+                                ) : (
+                                    <a
+                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-500 hover:underline"
+                                        onClick={() => trackResultClick(`${stall.name} (Location)`, index + 1)}
+                                    >
+                                        Search on Maps
+                                    </a>
+                                )}
+                            </p>
+
+                            {/* Add review summary */}
+                            {stall.review_summary && (
+                                <div className="mt-2">
+                                    <details>
+                                        <summary className="text-blue-600 cursor-pointer">Review Summary</summary>
+                                        <p className="mt-1 text-sm text-gray-700">{stall.review_summary}</p>
+                                    </details>
+                                </div>
+                            )}
+
                             <details className="mt-2">
                                 <summary className="text-blue-600 cursor-pointer">Recommended Dishes</summary>
                                 <ul className="list-disc pl-5 mt-1 text-sm">
@@ -273,15 +313,28 @@ export default function Home() {
                                     }
                                 </ul>
                             </details>
-                            <a
-                                href={stall.source_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-500 text-sm hover:underline"
-                                onClick={() => trackResultClick(stall.name, index + 1)}
-                            >
-                                Source: {stall.source}
-                            </a>
+                            <div className="mt-2">
+                                <span className="text-sm text-gray-600">Source: {stall.source}</span>
+                                <div className="flex flex-wrap gap-2 mt-1">
+                                    {stall.source_url.split(';').map((url, urlIndex) => {
+                                        const trimmedUrl = url.trim();
+                                        if (!trimmedUrl) return null;
+
+                                        return (
+                                            <a
+                                                key={urlIndex}
+                                                href={trimmedUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-500 text-sm hover:underline"
+                                                onClick={() => trackResultClick(`${stall.name} (Source ${urlIndex + 1})`, index + 1)}
+                                            >
+                                                Source {urlIndex + 1}
+                                            </a>
+                                        );
+                                    })}
+                                </div>
+                            </div>
                         </div>
                     ))}
                 </div>
