@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { trackSearch, trackResultClick } from '../utils/analytics';
 import useLocation from '../hooks/useLocation';
 import SearchTabs from '../components/SearchTabs';
@@ -202,10 +202,9 @@ export default function Home() {
                             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                         />
                         <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>$</span>
-                            <span>$$</span>
-                            <span>$$$</span>
-                            <span>$$$$</span>
+                            <span>(&lt;$10)</span>
+                            <span>($10-20)</span>
+                            <span>(&gt;$20)</span>
                         </div>
                     </div>
 
@@ -265,27 +264,35 @@ export default function Home() {
 
                             {/* Add location link that opens Google Maps */}
                             <p className="text-sm text-gray-600">
-                                Location: {stall.location ? (
-                                    <a
-                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(`${stall.name} ${stall.location}`)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-500 hover:underline"
-                                        onClick={() => trackResultClick(`${stall.name} (Location)`, index + 1)}
-                                    >
-                                        {stall.location}
-                                    </a>
-                                ) : (
-                                    <a
-                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-500 hover:underline"
-                                        onClick={() => trackResultClick(`${stall.name} (Location)`, index + 1)}
-                                    >
-                                        Search on Maps
-                                    </a>
-                                )}
+                                Location: {
+                                    (() => {
+                                        // Check if location is missing, "Not Specified", "not available", etc.
+                                        const locationMissing = !stall.location ||
+                                            /not\s+(specified|available)|n\/?a/i.test(stall.location);
+
+                                        // Text to display
+                                        const displayText = locationMissing && stall.latitude && stall.longitude ?
+                                            `${stall.latitude.toFixed(5)}, ${stall.longitude.toFixed(5)}` :
+                                            (stall.location || "Search on Maps");
+
+                                        // URL for Google Maps - use coordinates if available, otherwise use name
+                                        const mapsUrl = stall.latitude && stall.longitude ?
+                                            `https://maps.google.com/maps?q=${stall.latitude},${stall.longitude}` :
+                                            `https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`;
+
+                                        return (
+                                            <a
+                                                href={mapsUrl}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-blue-500 hover:underline"
+                                                onClick={() => trackResultClick(`${stall.name} (Location)`, index + 1)}
+                                            >
+                                                {displayText}
+                                            </a>
+                                        );
+                                    })()
+                                }
                             </p>
 
                             {/* Add review summary */}
@@ -310,26 +317,33 @@ export default function Home() {
                                 </ul>
                             </details>
                             <div className="mt-2">
-                                <span className="text-sm text-gray-600">Source: {stall.source}</span>
-                                <div className="flex flex-wrap gap-2 mt-1">
-                                    {stall.source_url.split(';').map((url, urlIndex) => {
-                                        const trimmedUrl = url.trim();
-                                        if (!trimmedUrl) return null;
+                                <span className="text-sm text-gray-600">
+                                    Source:
+                                    {stall.source.split(',').map((sourceName, index) => {
+                                        const trimmedName = sourceName.trim();
+                                        const urls = stall.source_url.split(';');
+                                        const url = index < urls.length ? urls[index].trim() : '';
 
                                         return (
-                                            <a
-                                                key={urlIndex}
-                                                href={trimmedUrl}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="text-blue-500 text-sm hover:underline"
-                                                onClick={() => trackResultClick(`${stall.name} (Source ${urlIndex + 1})`, index + 1)}
-                                            >
-                                                Source {urlIndex + 1}
-                                            </a>
+                                            <Fragment key={index}>
+                                                {index > 0 && ', '}
+                                                {url ? (
+                                                    <a
+                                                        href={url}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-500 hover:underline ml-1"
+                                                        onClick={() => trackResultClick(`${stall.name} (${trimmedName})`, index + 1)}
+                                                    >
+                                                        {trimmedName}
+                                                    </a>
+                                                ) : (
+                                                    <span className="ml-1">{trimmedName}</span>
+                                                )}
+                                            </Fragment>
                                         );
                                     })}
-                                </div>
+                                </span>
                             </div>
                         </div>
                     ))}
