@@ -59,6 +59,54 @@ function proximityToKm(proximity: string): number {
     return value || Infinity;
 }
 
+async function performSemanticOnlySearch(query: string) {
+    const embeddingResponse = await openai.embeddings.create({
+        model: "text-embedding-3-small",
+        input: query,
+    });
+
+    const embedding = embeddingResponse.data[0].embedding;
+
+    // Use match_stalls without distance filtering
+    const { data: results, error } = await supabase.rpc('match_stalls', {
+        query_embedding: embedding,
+        match_threshold: 0.3,
+        match_count: 5
+    });
+
+    if (error) throw error;
+
+    // Process results without distance calculation
+    const processedResults = results.map(stall => {
+        const recencyScore = calculateRecencyScore(stall.date_published);
+        return {
+            ...stall,
+            distance: null, // No distance available
+            recencyScore,
+            // Adjust similarity score to include only recency (no distance)
+            adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
+        };
+    });
+
+    // Sort by adjusted similarity
+    processedResults.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
+
+    // Return top 5 results with all necessary fields
+    return processedResults.slice(0, 5).map(stall => ({
+        place_id: stall.place_id,
+        name: stall.name,
+        distance: null, // No distance available
+        cuisine: stall.cuisine,
+        affordability: stall.affordability,
+        recommended_dishes: stall.recommended_dishes,
+        source: stall.source,
+        source_url: stall.source_url,
+        date_published: stall.date_published,
+        recencyScore: stall.recencyScore,
+        review_summary: stall.review_summary,
+        location: stall.location
+    }));
+}
 
 // Hybrid search function
 async function performHybridSearch(query: string, latitude: number, longitude: number) {
@@ -140,17 +188,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { mode, query, latitude, longitude, cuisine, proximity, affordability, comments } = req.body;
 
-    if (!latitude || !longitude) {
-        return res.status(400).json({ error: 'Location coordinates are required' });
-    }
+    //if (!latitude || !longitude) {
+    //    return res.status(400).json({ error: 'Location coordinates are required' });
+    //}
 
     try {
         if (mode === 'free') {
-            // Use hybrid search for free text queries
-            const results = await performHybridSearch(query, latitude, longitude);
+            // Use semantic-only search when location isn't available
+            const hasLocation = latitude !== null && longitude !== null;
+            const results = hasLocation
+                ? await performHybridSearch(query, latitude, longitude)
+                : await performSemanticOnlySearch(query);
             return res.status(200).json(results);
         } else {
-            // Guided search logic
+            // For guided search, still require location
+            if (!latitude || !longitude) {
+                return res.status(400).json({
+                    error: 'Location coordinates are required for guided search'
+                });
+            }
             let queryBuilder = supabase.from('stalls').select('*').eq('status', 'open');
 
             if (cuisine) {

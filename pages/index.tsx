@@ -35,11 +35,6 @@ export default function Home() {
     }, [affordabilityValue, affordabilities]);
 
     const handleFreeSearch = async (query: string) => {
-        if (!location) {
-            setError('Location is required for search. Please allow location access.');
-            return;
-        }
-
         setLoading(true);
         setError(null);
         setResults([]);
@@ -51,8 +46,9 @@ export default function Home() {
                 body: JSON.stringify({
                     query,
                     mode: 'free',
-                    latitude: location.latitude,
-                    longitude: location.longitude,
+                    // Send location if available, otherwise send null
+                    latitude: location ? location.latitude : null,
+                    longitude: location ? location.longitude : null,
                 }),
             });
 
