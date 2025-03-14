@@ -34,6 +34,19 @@ export default function Home() {
         setAffordability(affordabilities[index]);
     }, [affordabilityValue, affordabilities]);
 
+    const logSearch = async (searchData) => {
+        try {
+            await fetch('/api/log-search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(searchData),
+            });
+        } catch (err) {
+            console.error('Failed to log search:', err);
+            // Don't throw - we don't want logging failures to affect the user experience
+        }
+    };
+
     const handleFreeSearch = async (query: string) => {
         setLoading(true);
         setError(null);
@@ -46,7 +59,6 @@ export default function Home() {
                 body: JSON.stringify({
                     query,
                     mode: 'free',
-                    // Send location if available, otherwise send null
                     latitude: location ? location.latitude : null,
                     longitude: location ? location.longitude : null,
                 }),
@@ -58,12 +70,26 @@ export default function Home() {
 
             // Track the search event
             trackSearch(query, 'free', data.length);
+
+            // Log the search to Supabase
+            logSearch({
+                search_mode: 'free',
+                query,
+                cuisine: null,
+                proximity: null,
+                affordability: null,
+                comments: null,
+                latitude: location ? location.latitude : null,
+                longitude: location ? location.longitude : null,
+                results_count: data.length
+            });
         } catch (err) {
             setError('An error occurred. Please try again.');
         } finally {
             setLoading(false);
         }
     };
+
 
     const handleGuidedSearch = async () => {
         if (!location) {
@@ -100,6 +126,19 @@ export default function Home() {
                 'guided',
                 data.length
             );
+
+            // Log the search to Supabase
+            logSearch({
+                search_mode: 'guided',
+                query: null,
+                cuisine,
+                proximity,
+                affordability,
+                comments,
+                latitude: location.latitude,
+                longitude: location.longitude,
+                results_count: data.length
+            });
         } catch (err) {
             setError('An error occurred. Please try again.');
         } finally {
