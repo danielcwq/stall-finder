@@ -301,20 +301,20 @@ export default function Home() {
                             <p className="text-sm text-gray-600">Cuisine: {stall.cuisine}</p>
                             <p className="text-sm text-gray-600">Price: {stall.affordability}</p>
 
-                            {/* Add location link that opens Google Maps */}
+                            {/* Location link that opens Google Maps */}
                             <p className="text-sm text-gray-600">
                                 Location: {
                                     (() => {
-                                        // Check if location is missing, "Not Specified", "not available", etc.
-                                        const locationMissing = !stall.location ||
-                                            /not\s+(specified|available)|n\/?a/i.test(stall.location);
+                                        // Improved regex to catch all case variations of "not specified", "not available", etc.
+                                        const isNonSpecificLocation = !stall.location ||
+                                            /(?:not|Not|NOT)\s+(?:specified|Specified|SPECIFIED|available|Available|AVAILABLE)|(?:n\/?a|N\/?A)|(?:unknown|Unknown|UNKNOWN)|(?:nil|Nil|NIL)/i.test(stall.location);
 
-                                        // Text to display
-                                        const displayText = locationMissing && stall.latitude && stall.longitude ?
+                                        // Text to display - use coordinates only when location is non-specific
+                                        const displayText = isNonSpecificLocation && stall.latitude && stall.longitude ?
                                             `${stall.latitude.toFixed(5)}, ${stall.longitude.toFixed(5)}` :
                                             (stall.location || "Search on Maps");
 
-                                        // URL for Google Maps - use coordinates if available, otherwise use name
+                                        // URL for Google Maps - always prioritize coordinates when available
                                         const mapsUrl = stall.latitude && stall.longitude ?
                                             `https://maps.google.com/maps?q=${stall.latitude},${stall.longitude}` :
                                             `https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`;
