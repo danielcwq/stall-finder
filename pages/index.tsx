@@ -390,6 +390,30 @@ export default function Home() {
             ) : (
                 !loading && !error && <div className="mt-4 text-center">No results found. Try adjusting your search criteria.</div>
             )}
+            <div className="mt-8 mb-4">
+                <a
+                    href="https://forms.gle/4QZwsefe3HNvTN6Y6"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center text-blue-600 hover:text-blue-800 transition-colors"
+                >
+                    Give feedback
+                    <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        className="h-4 w-4 ml-1"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                    >
+                        <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M14 5l7 7m0 0l-7 7m7-7H3"
+                        />
+                    </svg>
+                </a>
+            </div>
         </div>
     );
 }
