@@ -321,7 +321,7 @@ export default function Home() {
 
                                         return (
                                             <a
-                                                href={mapsUrl}
+                                                href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
                                                 className="text-blue-500 hover:underline"
