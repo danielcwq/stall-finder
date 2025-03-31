@@ -17,10 +17,64 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
     const [showExplanation, setShowExplanation] = useState(false);
-
     const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Malay', 'Korean', 'Others'];
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
     const affordabilities = ['$', '$$', '$$$'];
+    const [requestingLocation, setRequestingLocation] = useState(false);
+
+    const requestLocationManually = () => {
+        setRequestingLocation(true);
+
+        if (!navigator.geolocation) {
+            setError('Geolocation is not supported by your browser.');
+            setRequestingLocation(false);
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            (position) => {
+                // Success handler
+                const coords = {
+                    latitude: position.coords.latitude,
+                    longitude: position.coords.longitude,
+                };
+                console.log('Manual location success:', coords);
+
+                // Create a custom event to notify the useLocation hook
+                const locationEvent = new CustomEvent('manualLocationObtained', {
+                    detail: coords
+                });
+                window.dispatchEvent(locationEvent);
+
+                setRequestingLocation(false);
+            },
+            (error) => {
+                // Error handler
+                console.error('Manual location error:', error.message);
+                let errorMsg = 'Could not get your location.';
+
+                switch (error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMsg = 'Location permission was denied. Please check your browser settings.';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMsg = 'Location information is unavailable.';
+                        break;
+                    case error.TIMEOUT:
+                        errorMsg = 'Location request timed out.';
+                        break;
+                }
+
+                setError(errorMsg);
+                setRequestingLocation(false);
+            },
+            {
+                enableHighAccuracy: true,  // Get the most accurate position
+                timeout: 10000,           // Time limit for obtaining location
+                maximumAge: 0             // Don't use cached position
+            }
+        );
+    };
 
     useEffect(() => {
         // Debug location state
@@ -198,10 +252,41 @@ export default function Home() {
             </div>
 
             {locError && (
-                <div className="w-full max-w-md mb-4 p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded">
-                    {locError} Search results may be limited without location access.
+                <div className="w-full max-w-md mb-4">
+                    <div className="p-3 bg-yellow-100 border border-yellow-400 text-yellow-700 rounded mb-2">
+                        {locError} Search results may be limited without location access.
+                    </div>
+
+                    <button
+                        onClick={requestLocationManually}
+                        disabled={requestingLocation}
+                        className="w-full bg-blue-600 text-white p-3 rounded-md hover:bg-blue-700 transition flex items-center justify-center"
+                    >
+                        {requestingLocation ? (
+                            <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Requesting Location...
+                            </>
+                        ) : (
+                            <>
+                                <svg className="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                </svg>
+                                Get My Location
+                            </>
+                        )}
+                    </button>
+
+                    <div className="mt-2 text-xs text-gray-500 text-center">
+                        If this fails, use "I'm Feeling Lucky!"
+                    </div>
                 </div>
             )}
+
 
             {isLoading && (
                 <div className="w-full max-w-md mb-4 p-3 bg-blue-100 border border-blue-400 text-blue-700 rounded">

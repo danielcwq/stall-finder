@@ -45,6 +45,18 @@ const useLocation = () => {
 
         navigator.geolocation.getCurrentPosition(successHandler, errorHandler);
 
+        const handleManualLocation = (event: CustomEvent) => {
+            if (isMounted && event.detail) {
+                console.log('Received manual location:', event.detail);
+                setLocation(event.detail);
+                setError(null);
+                setIsLoading(false);
+            }
+        };
+
+        // @ts-ignore - TypeScript might complain about CustomEvent
+        window.addEventListener('manualLocationObtained', handleManualLocation);
+
         // Cleanup function to prevent state updates after unmount
         return () => {
             isMounted = false;
