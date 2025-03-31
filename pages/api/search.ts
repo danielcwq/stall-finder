@@ -92,30 +92,20 @@ async function performSemanticOnlySearch(query: string) {
     processedResults.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
 
     // Return top 5 results with all necessary fields
-    return processedResults.slice(0, 5).map(stall => {
-        // Check if location is non-specific
-        const isNonSpecificLocation = !stall.location ||
-            /(?:not|Not|NOT)\s+(?:specified|Specified|SPECIFIED|available|Available|AVAILABLE)|(?:n\/?a|N\/?A)|(?:unknown|Unknown|UNKNOWN)|(?:nil|Nil|NIL)/i.test(stall.location);
-
-        return {
-            place_id: stall.place_id,
-            name: stall.name,
-            distance: null, // No distance available
-            cuisine: stall.cuisine,
-            affordability: stall.affordability,
-            recommended_dishes: stall.recommended_dishes,
-            source: stall.source,
-            source_url: stall.source_url,
-            date_published: stall.date_published,
-            recencyScore: stall.recencyScore,
-            review_summary: stall.review_summary,
-            // Replace non-specific location with coordinates
-            location: isNonSpecificLocation && stall.latitude && stall.longitude ?
-                `${stall.latitude.toFixed(5)}, ${stall.longitude.toFixed(5)}` : stall.location,
-            latitude: stall.latitude,
-            longitude: stall.longitude
-        };
-    });
+    return processedResults.slice(0, 5).map(stall => ({
+        place_id: stall.place_id,
+        name: stall.name,
+        distance: null, // No distance available
+        cuisine: stall.cuisine,
+        affordability: stall.affordability,
+        recommended_dishes: stall.recommended_dishes,
+        source: stall.source,
+        source_url: stall.source_url,
+        date_published: stall.date_published,
+        recencyScore: stall.recencyScore,
+        review_summary: stall.review_summary,
+        location: stall.location
+    }));
 }
 
 // Hybrid search function
@@ -174,31 +164,21 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
     resultsWithDistance.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
 
     // Return top 5 results with all necessary fields
-    return resultsWithDistance.slice(0, 5).map(stall => {
-        // Check if location is non-specific
-        const isNonSpecificLocation = !stall.location ||
-            /(?:not|Not|NOT)\s+(?:specified|Specified|SPECIFIED|available|Available|AVAILABLE)|(?:n\/?a|N\/?A)|(?:unknown|Unknown|UNKNOWN)|(?:nil|Nil|NIL)/i.test(stall.location);
-
-        return {
-            place_id: stall.place_id,
-            name: stall.name,
-            distance: typeof stall.distance === 'number' && stall.distance !== Infinity ?
-                stall.distance : null,
-            cuisine: stall.cuisine,
-            affordability: stall.affordability,
-            recommended_dishes: stall.recommended_dishes,
-            source: stall.source,
-            source_url: stall.source_url,
-            date_published: stall.date_published,
-            recencyScore: stall.recencyScore,
-            review_summary: stall.review_summary,
-            // Replace non-specific location with coordinates
-            location: isNonSpecificLocation && stall.latitude && stall.longitude ?
-                `${stall.latitude.toFixed(5)}, ${stall.longitude.toFixed(5)}` : stall.location,
-            latitude: stall.latitude,
-            longitude: stall.longitude
-        };
-    });
+    return resultsWithDistance.slice(0, 5).map(stall => ({
+        place_id: stall.place_id,
+        name: stall.name,
+        distance: typeof stall.distance === 'number' && stall.distance !== Infinity ?
+            stall.distance : null,
+        cuisine: stall.cuisine,
+        affordability: stall.affordability,
+        recommended_dishes: stall.recommended_dishes,
+        source: stall.source,
+        source_url: stall.source_url,
+        date_published: stall.date_published,
+        recencyScore: stall.recencyScore,
+        review_summary: stall.review_summary,
+        location: stall.location
+    }));
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {

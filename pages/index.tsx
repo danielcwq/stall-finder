@@ -18,11 +18,35 @@ export default function Home() {
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
     const [showExplanation, setShowExplanation] = useState(false);
 
-    const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Others'];
+    const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Malay', 'Korean', 'Others'];
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
-    const affordabilities = ['$', '$$', '$$$', '$$$$'];
+    const affordabilities = ['$', '$$', '$$$'];
 
-    // Replace the existing proximity useEffect (lines 25-37) with this:
+    useEffect(() => {
+        // Debug location state
+        console.log('Current location state:', {
+            locationExists: !!location,
+            locationValues: location,
+            locError,
+            isLoading
+        });
+
+        // Check if the browser supports geolocation
+        if (!navigator.geolocation) {
+            console.error('Geolocation is not supported by this browser');
+            return;
+        }
+
+        // Test geolocation permissions
+        navigator.permissions.query({ name: 'geolocation' }).then(permissionStatus => {
+            console.log('Geolocation permission status:', permissionStatus.state);
+
+            permissionStatus.onchange = () => {
+                console.log('Geolocation permission changed to:', permissionStatus.state);
+            };
+        });
+    }, [location, locError, isLoading]);
+
     useEffect(() => {
         // Just set the proximity directly as a string with km unit
         setProximity(`${proximityValue.toFixed(1)} km`);
@@ -30,7 +54,7 @@ export default function Home() {
 
     // Map affordability value (1-4) to price categories
     useEffect(() => {
-        const index = Math.min(Math.max(Math.floor(affordabilityValue), 0), 3);
+        const index = Math.min(Math.max(Math.floor(affordabilityValue), 0), 2);
         setAffordability(affordabilities[index]);
     }, [affordabilityValue, affordabilities]);
 
@@ -234,7 +258,7 @@ export default function Home() {
                             id="affordability"
                             type="range"
                             min="1"
-                            max="4"
+                            max="3"
                             step="0.01"
                             value={affordabilityValue}
                             onChange={(e) => setAffordabilityValue(parseFloat(e.target.value))}
