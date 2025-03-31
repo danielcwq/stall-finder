@@ -49,7 +49,7 @@ export default function Home() {
                 setRequestingLocation(false);
             },
             (error) => {
-                // Error handler
+                // Error handler - test
                 console.error('Manual location error:', error.message);
                 let errorMsg = 'Could not get your location.';
 
