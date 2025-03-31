@@ -1,3 +1,4 @@
+// hooks/useLocation.ts
 import { useState, useEffect } from 'react';
 
 interface Location {
@@ -10,67 +11,90 @@ const useLocation = () => {
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(true);
 
-    useEffect(() => {
-        let isMounted = true; // Add this flag to track component mount state
+    // New state to track if we need to show a prompt for Safari
+    const [needsSafariPrompt, setNeedsSafariPrompt] = useState(false);
 
+    // Detect Safari on iOS
+    const isIOSSafari = () => {
+        const ua = navigator.userAgent;
+        return /iPad|iPhone|iPod/.test(ua) && !window.MSStream && /Safari/.test(ua) && !/Chrome/.test(ua);
+    };
+
+    const requestLocation = () => {
         if (!navigator.geolocation) {
-            if (isMounted) {
-                setError('Geolocation is not supported by your browser.');
-                setIsLoading(false);
-            }
+            setError('Geolocation is not supported by your browser.');
+            setIsLoading(false);
             return;
         }
 
         console.log('Requesting geolocation...');
 
         const successHandler = (position) => {
-            if (isMounted) {
-                const coords = {
-                    latitude: position.coords.latitude,
-                    longitude: position.coords.longitude,
-                };
-                console.log('Geolocation obtained:', coords);
-                setLocation(coords);
-                setIsLoading(false);
-            }
+            const coords = {
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+            };
+            console.log('Geolocation obtained:', coords);
+            setLocation(coords);
+            setError(null);
+            setIsLoading(false);
+            setNeedsSafariPrompt(false);
         };
 
         const errorHandler = (err) => {
-            if (isMounted) {
-                console.error('Geolocation error:', err.message);
+            console.error('Geolocation error:', err);
+
+            // Check specifically for iOS Safari permissions issues
+            if (isIOSSafari() && (err.code === 1 || err.code === err.PERMISSION_DENIED)) {
+                setNeedsSafariPrompt(true);
+                setError('Safari requires explicit permission for location access.');
+            } else {
                 setError('Please allow location access for better results.');
-                setIsLoading(false);
             }
+
+            setIsLoading(false);
         };
 
-        navigator.geolocation.getCurrentPosition(successHandler, errorHandler);
+        navigator.geolocation.getCurrentPosition(
+            successHandler,
+            errorHandler,
+            {
+                enableHighAccuracy: true,
+                timeout: 15000,  // Longer timeout for iOS
+                maximumAge: 0
+            }
+        );
+    };
 
-        const handleManualLocation = (event: CustomEvent) => {
-            if (isMounted && event.detail) {
-                console.log('Received manual location:', event.detail);
+    // Listen for a custom event for manual location requests
+    useEffect(() => {
+        const handleManualLocation = (event: any) => {
+            if (event.detail) {
+                console.log('Manual location received:', event.detail);
                 setLocation(event.detail);
                 setError(null);
                 setIsLoading(false);
+                setNeedsSafariPrompt(false);
             }
         };
 
-        // @ts-ignore - TypeScript might complain about CustomEvent
         window.addEventListener('manualLocationObtained', handleManualLocation);
 
-        // Cleanup function to prevent state updates after unmount
+        // Initial request
+        requestLocation();
+
         return () => {
-            isMounted = false;
+            window.removeEventListener('manualLocationObtained', handleManualLocation);
         };
     }, []);
 
-    // Add logging when location changes
-    useEffect(() => {
-        if (location) {
-            console.log('Location state updated:', location);
-        }
-    }, [location]);
-
-    return { location, error, isLoading };
+    return {
+        location,
+        error,
+        isLoading,
+        needsSafariPrompt,
+        requestLocation  // Expose this so it can be called manually
+    };
 };
 
 export default useLocation;
