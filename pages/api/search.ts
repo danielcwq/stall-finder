@@ -71,7 +71,7 @@ async function performSemanticOnlySearch(query: string) {
     const { data: results, error } = await supabase.rpc('match_stalls', {
         query_embedding: embedding,
         match_threshold: 0.3,
-        match_count: 5
+        match_count: 10
     });
 
     if (error) throw error;
@@ -92,7 +92,7 @@ async function performSemanticOnlySearch(query: string) {
     processedResults.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
 
     // Return top 5 results with all necessary fields
-    return processedResults.slice(0, 5).map(stall => ({
+    return processedResults.slice(0, 10).map(stall => ({
         place_id: stall.place_id,
         name: stall.name,
         distance: null, // No distance available
@@ -164,7 +164,7 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
     resultsWithDistance.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
 
     // Return top 5 results with all necessary fields
-    return resultsWithDistance.slice(0, 5).map(stall => ({
+    return resultsWithDistance.slice(0, 10).map(stall => ({
         place_id: stall.place_id,
         name: stall.name,
         distance: typeof stall.distance === 'number' && stall.distance !== Infinity ?
@@ -297,7 +297,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             }
 
             // Return top 5 results
-            const results = filteredStalls.slice(0, 5).map(stall => ({
+            const results = filteredStalls.slice(0, 10).map(stall => ({
                 place_id: stall.place_id,
                 name: stall.name,
                 distance: stall.distance,
