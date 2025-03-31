@@ -17,7 +17,7 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
     const [showExplanation, setShowExplanation] = useState(false);
-    const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Malay', 'Korean', 'Others'];
+    const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Malay', 'Korean', 'Peranakan','Others'];
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
     const affordabilities = ['$', '$$', '$$$'];
     const [requestingLocation, setRequestingLocation] = useState(false);
