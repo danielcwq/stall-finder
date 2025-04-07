@@ -7,8 +7,8 @@ import dynamic from 'next/dynamic'
 
 const LocationPicker = dynamic(
     () => import('../components/LocationPicker'),
-    { ssr: false } 
-  );
+    { ssr: false }
+);
 export default function Home() {
     const { location, error: locError, isLoading } = useLocation();
     const [showMapPicker, setShowMapPicker] = useState(false);
@@ -23,7 +23,7 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
     const [showExplanation, setShowExplanation] = useState(false);
-    const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Malay', 'Korean', 'Peranakan','Others'];
+    const cuisines = ['Chinese', 'Western', 'Indian', 'Japanese', 'Malay', 'Korean', 'Peranakan', 'Others'];
     const proximities = ['1 km', '5 km', '10 km', '25 km'];
     const affordabilities = ['$', '$$', '$$$'];
     const [requestingLocation, setRequestingLocation] = useState(false);
@@ -33,7 +33,7 @@ export default function Home() {
             detail: coords
         });
         window.dispatchEvent(locationEvent);
-        
+
         // Hide the map picker after selection
         setShowMapPicker(false);
     };
@@ -262,7 +262,7 @@ export default function Home() {
                 )}
 
                 <div className="text-xs text-gray-500">
-                    Made with ❤️ by <a href="https://danielching.me" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Daniel Ching</a>
+                    Made with ❤️ by <a href="https://danielcwq.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">Daniel Ching</a>
                 </div>
             </div>
 
@@ -283,7 +283,7 @@ export default function Home() {
                             </svg>
                             Choose Location on Map
                         </button>
-                        
+
                         <button
                             onClick={requestLocationManually}
                             disabled={requestingLocation}
@@ -321,7 +321,7 @@ export default function Home() {
                     <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl overflow-hidden">
                         <div className="p-4 border-b flex justify-between items-center">
                             <h3 className="text-lg font-medium">Select Your Location</h3>
-                            <button 
+                            <button
                                 onClick={() => setShowMapPicker(false)}
                                 className="text-gray-500 hover:text-gray-700"
                             >
