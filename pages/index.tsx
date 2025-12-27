@@ -485,6 +485,34 @@ export default function Home() {
                                                         Similarity: {(stall.similarity * 100).toFixed(1)}%
                                                     </p>
                                                 )}
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    <a
+                                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-500 hover:underline"
+                                                    >
+                                                        {stall.location || "View on Maps"}
+                                                    </a>
+                                                </p>
+                                                {stall.source && (
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Source: {stall.source.split(',').map((src, idx) => {
+                                                            const urls = stall.source_url?.split(';') || [];
+                                                            const url = idx < urls.length ? urls[idx].trim() : '';
+                                                            return (
+                                                                <Fragment key={idx}>
+                                                                    {idx > 0 && ', '}
+                                                                    {url ? (
+                                                                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                                                            {src.trim()}
+                                                                        </a>
+                                                                    ) : src.trim()}
+                                                                </Fragment>
+                                                            );
+                                                        })}
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
@@ -515,7 +543,35 @@ export default function Home() {
                                                 <p className="text-xs text-gray-600">{stall.cuisine} · {stall.affordability}</p>
                                                 {stall.cohereScore !== undefined && (
                                                     <p className="text-xs text-blue-600">
-                                                        Cohere Score: {(stall.cohereScore * 100).toFixed(1)}%
+                                                        Rerank Score: {(stall.cohereScore * 100).toFixed(1)}%
+                                                    </p>
+                                                )}
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    <a
+                                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-500 hover:underline"
+                                                    >
+                                                        {stall.location || "View on Maps"}
+                                                    </a>
+                                                </p>
+                                                {stall.source && (
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Source: {stall.source.split(',').map((src, idx) => {
+                                                            const urls = stall.source_url?.split(';') || [];
+                                                            const url = idx < urls.length ? urls[idx].trim() : '';
+                                                            return (
+                                                                <Fragment key={idx}>
+                                                                    {idx > 0 && ', '}
+                                                                    {url ? (
+                                                                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                                                            {src.trim()}
+                                                                        </a>
+                                                                    ) : src.trim()}
+                                                                </Fragment>
+                                                            );
+                                                        })}
                                                     </p>
                                                 )}
                                             </div>
