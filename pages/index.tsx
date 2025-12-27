@@ -143,13 +143,18 @@ export default function Home() {
         }
     };
 
-    const handleFreeSearch = async (query: string, compare: boolean = false) => {
+    const handleFreeSearch = async (query: string, compare: boolean = false, useAgent: boolean = false) => {
         setLoading(true);
         setError(null);
         setResults([]);
         setStandardResults([]);
         setRerankedResults([]);
         setCompareMode(compare);
+
+        // TODO: Implement agent mode when ready
+        if (useAgent) {
+            console.log('Agent mode triggered - not yet implemented');
+        }
 
         try {
             const response = await fetch('/api/search', {
@@ -159,6 +164,7 @@ export default function Home() {
                     query,
                     mode: 'free',
                     compare,
+                    useAgent, // Pass to API for future use
                     latitude: location ? location.latitude : null,
                     longitude: location ? location.longitude : null,
                 }),
