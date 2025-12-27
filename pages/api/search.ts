@@ -353,6 +353,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                     filteredStalls = filteredStalls.map(stall => ({
                         ...stall,
                         semanticScore: semanticScores.get(stall.place_id) || 0,
+                        similarity: semanticScores.get(stall.place_id) || 0,
                         // Adjust distance by semantic relevance and recency
                         // 60% weight to distance, 30% to semantic, 10% to recency
                         adjustedDistance: Number(stall.distance) *
@@ -374,8 +375,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 filteredStalls.sort((a, b) => a.adjustedDistance - b.adjustedDistance);
             }
 
-            // Return top 5 results
-            const results = filteredStalls.slice(0, 10).map(stall => ({
+            // Build rerank query from filters
+            const buildRerankQuery = (): string => {
+                const parts: string[] = [];
+                if (cuisine) parts.push(cuisine + ' food');
+                if (affordability) {
+                    const priceDesc = affordability === '$' ? 'cheap affordable' :
+                                     affordability === '$$' ? 'mid-range' : 'premium';
+                    parts.push(priceDesc);
+                }
+                if (comments && comments.trim()) parts.push(comments.trim());
+                return parts.length > 0 ? parts.join(' ') : 'good food stall';
+            };
+
+            // Standard results (sorted by adjusted distance)
+            const standardResults = filteredStalls.slice(0, 10).map(stall => ({
                 place_id: stall.place_id,
                 name: stall.name,
                 distance: stall.distance,
@@ -387,10 +401,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                 date_published: stall.date_published,
                 recencyScore: stall.recencyScore,
                 review_summary: stall.review_summary,
-                location: stall.location
+                location: stall.location,
+                similarity: stall.similarity || null
             }));
 
-            return res.status(200).json(results);
+            if (compare && filteredStalls.length > 0) {
+                // Rerank using Cohere
+                const rerankQuery = buildRerankQuery();
+                const rerankedStalls = await rerankResults(rerankQuery, filteredStalls);
+
+                const rerankedResults = rerankedStalls.slice(0, 10).map(stall => ({
+                    place_id: stall.place_id,
+                    name: stall.name,
+                    distance: stall.distance,
+                    cuisine: stall.cuisine,
+                    affordability: stall.affordability,
+                    recommended_dishes: stall.recommended_dishes,
+                    source: stall.source,
+                    source_url: stall.source_url,
+                    date_published: stall.date_published,
+                    recencyScore: stall.recencyScore,
+                    review_summary: stall.review_summary,
+                    location: stall.location,
+                    cohereScore: stall.cohereScore
+                }));
+
+                return res.status(200).json({
+                    standard: standardResults,
+                    reranked: rerankedResults
+                });
+            }
+
+            return res.status(200).json(standardResults);
         }
     } catch (error) {
         console.error('Search error:', error);

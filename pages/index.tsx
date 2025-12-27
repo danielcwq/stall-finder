@@ -199,6 +199,8 @@ export default function Home() {
     };
 
 
+    const [guidedCompareMode, setGuidedCompareMode] = useState(false);
+
     const handleGuidedSearch = async () => {
         if (!location) {
             setError('Location is required for search. Please allow location access.');
@@ -208,6 +210,9 @@ export default function Home() {
         setLoading(true);
         setError(null);
         setResults([]);
+        setStandardResults([]);
+        setRerankedResults([]);
+        setCompareMode(guidedCompareMode);
 
         try {
             const response = await fetch('/api/search', {
@@ -215,6 +220,7 @@ export default function Home() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     mode: 'guided',
+                    compare: guidedCompareMode,
                     latitude: location.latitude,
                     longitude: location.longitude,
                     cuisine,
@@ -226,18 +232,30 @@ export default function Home() {
 
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
-            setResults(data);
 
-            // Track the guided search
-            trackSearch(
-                `Cuisine: ${cuisine}, Proximity: ${proximity}, Affordability: ${affordability}, Comments: ${comments}`,
-                'guided',
-                data.length
-            );
+            if (guidedCompareMode && data.standard && data.reranked) {
+                // Compare mode: set both result sets
+                setStandardResults(data.standard);
+                setRerankedResults(data.reranked);
+                // Track the search event
+                trackSearch(
+                    `Cuisine: ${cuisine}, Proximity: ${proximity}, Affordability: ${affordability}, Comments: ${comments}`,
+                    'guided-compare',
+                    data.standard.length
+                );
+            } else {
+                // Normal mode: set single result set
+                setResults(data);
+                trackSearch(
+                    `Cuisine: ${cuisine}, Proximity: ${proximity}, Affordability: ${affordability}, Comments: ${comments}`,
+                    'guided',
+                    data.length
+                );
+            }
 
             // Log the search to Supabase
             logSearch({
-                search_mode: 'guided',
+                search_mode: guidedCompareMode ? 'guided-compare' : 'guided',
                 query: null,
                 cuisine,
                 proximity,
@@ -245,7 +263,7 @@ export default function Home() {
                 comments,
                 latitude: location.latitude,
                 longitude: location.longitude,
-                results_count: data.length
+                results_count: guidedCompareMode ? data.standard?.length : data.length
             });
         } catch (err) {
             setError('An error occurred. Please try again.');
@@ -431,13 +449,34 @@ export default function Home() {
                         />
                     </div>
 
+                    {/* Compare Mode Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-md border">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-700">A/B Compare Mode</span>
+                            <span className="text-xs text-gray-500">Compare standard vs Cohere rerank</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setGuidedCompareMode(!guidedCompareMode)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                guidedCompareMode ? 'bg-blue-600' : 'bg-gray-300'
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    guidedCompareMode ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                            />
+                        </button>
+                    </div>
+
                     <button
                         type="button"
                         onClick={handleGuidedSearch}
                         className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition"
                         disabled={loading}
                     >
-                        {loading ? 'Searching...' : 'Search'}
+                        {loading ? 'Searching...' : guidedCompareMode ? 'Compare Search Methods' : 'Search'}
                     </button>
                 </form>
             ) : (
