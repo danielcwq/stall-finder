@@ -19,7 +19,7 @@ export const trackEvent = ({ action, category, label, value, ...rest }: EventPar
 };
 
 // Track search events
-export const trackSearch = (query: string, mode: 'free' | 'guided', resultsCount: number) => {
+export const trackSearch = (query: string, mode: 'free' | 'guided' | 'free-compare', resultsCount: number) => {
     trackEvent({
         action: 'search',
         category: `search_${mode}`,
