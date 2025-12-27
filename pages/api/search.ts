@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import OpenAI from 'openai';
+import { CohereClient } from 'cohere-ai';
 
 console.log('Environment variables check:', {
     supabaseUrl: process.env.SUPABASE_URL ? 'defined' : 'undefined',
@@ -22,6 +23,69 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
+
+const cohere = new CohereClient({
+    token: process.env.COHERE_API_KEY,
+});
+
+// Type definition for stall records
+interface Stall {
+    place_id: string;
+    name: string;
+    latitude: number;
+    longitude: number;
+    cuisine: string;
+    affordability: string;
+    recommended_dishes?: string[];
+    review_summary: string;
+    source: string;
+    source_url: string;
+    date_published: string;
+    location: string;
+    status: string;
+    similarity?: number;
+    distance?: number | null;
+    recencyScore?: number;
+    cohereScore?: number;
+}
+
+// Build document text for Cohere reranking
+function buildDocumentText(stall: Stall): string {
+    return [
+        stall.name,
+        stall.cuisine,
+        stall.affordability,
+        stall.review_summary,
+        stall.recommended_dishes ? `Dishes: ${stall.recommended_dishes.join(', ')}` : '',
+    ].filter(Boolean).join('. ');
+}
+
+// Rerank results using Cohere
+async function rerankResults(query: string, candidates: Stall[]): Promise<Stall[]> {
+    if (candidates.length === 0) return [];
+
+    try {
+        const response = await cohere.rerank({
+            model: 'rerank-v3.5',
+            query: query,
+            documents: candidates.map(stall => ({
+                text: buildDocumentText(stall)
+            })),
+            topN: 10,
+            returnDocuments: false
+        });
+
+        // Reorder candidates based on Cohere scores
+        return response.results.map(result => ({
+            ...candidates[result.index],
+            cohereScore: result.relevanceScore
+        }));
+    } catch (error) {
+        console.error('Cohere rerank error:', error);
+        // Fallback to original order if rerank fails
+        return candidates.slice(0, 10);
+    }
+}
 
 // Calculate recency score based on publication date
 function calculateRecencyScore(datePublished: string): number {
@@ -59,7 +123,27 @@ function proximityToKm(proximity: string): number {
     return value || Infinity;
 }
 
-async function performSemanticOnlySearch(query: string) {
+// Helper to format stall results for response
+function formatStallResult(stall: any) {
+    return {
+        place_id: stall.place_id,
+        name: stall.name,
+        distance: stall.distance ?? null,
+        cuisine: stall.cuisine,
+        affordability: stall.affordability,
+        recommended_dishes: stall.recommended_dishes,
+        source: stall.source,
+        source_url: stall.source_url,
+        date_published: stall.date_published,
+        recencyScore: stall.recencyScore,
+        review_summary: stall.review_summary,
+        location: stall.location,
+        cohereScore: stall.cohereScore,
+        similarity: stall.similarity
+    };
+}
+
+async function performSemanticOnlySearch(query: string, compare: boolean = false) {
     const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
         input: query,
@@ -67,11 +151,11 @@ async function performSemanticOnlySearch(query: string) {
 
     const embedding = embeddingResponse.data[0].embedding;
 
-    // Use match_stalls without distance filtering
+    // Use match_stalls - get more candidates when comparing
     const { data: results, error } = await supabase.rpc('match_stalls', {
         query_embedding: embedding,
-        match_threshold: 0.3,
-        match_count: 10
+        match_threshold: compare ? 0.2 : 0.3,  // Lower threshold for more candidates
+        match_count: compare ? 50 : 10          // More candidates for reranking
     });
 
     if (error) throw error;
@@ -81,35 +165,34 @@ async function performSemanticOnlySearch(query: string) {
         const recencyScore = calculateRecencyScore(stall.date_published);
         return {
             ...stall,
-            distance: null, // No distance available
+            distance: null,
             recencyScore,
-            // Adjust similarity score to include only recency (no distance)
             adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
         };
     });
 
-    // Sort by adjusted similarity
-    processedResults.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
+    // Sort by adjusted similarity for standard results
+    const standardResults = [...processedResults]
+        .sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity)
+        .slice(0, 10)
+        .map(formatStallResult);
 
-    // Return top 5 results with all necessary fields
-    return processedResults.slice(0, 10).map(stall => ({
-        place_id: stall.place_id,
-        name: stall.name,
-        distance: null, // No distance available
-        cuisine: stall.cuisine,
-        affordability: stall.affordability,
-        recommended_dishes: stall.recommended_dishes,
-        source: stall.source,
-        source_url: stall.source_url,
-        date_published: stall.date_published,
-        recencyScore: stall.recencyScore,
-        review_summary: stall.review_summary,
-        location: stall.location
-    }));
+    if (compare) {
+        // Get reranked results
+        const rerankedResults = await rerankResults(query, processedResults);
+        const formattedReranked = rerankedResults.slice(0, 10).map(formatStallResult);
+
+        return {
+            standard: standardResults,
+            reranked: formattedReranked
+        };
+    }
+
+    return standardResults;
 }
 
 // Hybrid search function
-async function performHybridSearch(query: string, latitude: number, longitude: number) {
+async function performHybridSearch(query: string, latitude: number, longitude: number, compare: boolean = false) {
     // Generate embedding for semantic search
     const embeddingResponse = await openai.embeddings.create({
         model: "text-embedding-3-small",
@@ -118,22 +201,21 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
 
     const embedding = embeddingResponse.data[0].embedding;
 
-    // Use match_stalls instead of match_documents
+    // Use match_stalls - get more candidates when comparing
     const { data: results, error } = await supabase.rpc('match_stalls', {
         query_embedding: embedding,
-        match_threshold: 0.3,
-        match_count: 10 // Get more results since we're not filtering by distance
+        match_threshold: compare ? 0.2 : 0.3,
+        match_count: compare ? 50 : 10
     });
 
     if (error) throw error;
 
     // Process results with safe distance calculation
-    const resultsWithDistance = results.map(stall => {
-        let distance = Infinity;
+    const processedResults = results.map(stall => {
+        let distance: number | null = null;
         let recencyScore = 0;
 
         try {
-            // Only calculate distance if coordinates are valid
             if (stall.latitude && stall.longitude &&
                 !isNaN(stall.latitude) && !isNaN(stall.longitude) &&
                 !isNaN(latitude) && !isNaN(longitude)) {
@@ -144,41 +226,37 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
                     stall.longitude
                 );
             }
-
             recencyScore = calculateRecencyScore(stall.date_published);
         } catch (e) {
             console.error('Error calculating metrics:', e);
-            // Keep default values if calculation fails
         }
 
         return {
             ...stall,
-            distance: distance,
-            recencyScore: recencyScore,
-            // Adjust similarity score to include recency (70% similarity, 30% recency)
+            distance,
+            recencyScore,
             adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
         };
     });
 
-    // Sort by adjusted similarity
-    resultsWithDistance.sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity);
+    // Sort by adjusted similarity for standard results
+    const standardResults = [...processedResults]
+        .sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity)
+        .slice(0, 10)
+        .map(formatStallResult);
 
-    // Return top 5 results with all necessary fields
-    return resultsWithDistance.slice(0, 10).map(stall => ({
-        place_id: stall.place_id,
-        name: stall.name,
-        distance: typeof stall.distance === 'number' && stall.distance !== Infinity ?
-            stall.distance : null,
-        cuisine: stall.cuisine,
-        affordability: stall.affordability,
-        recommended_dishes: stall.recommended_dishes,
-        source: stall.source,
-        source_url: stall.source_url,
-        date_published: stall.date_published,
-        recencyScore: stall.recencyScore,
-        review_summary: stall.review_summary,
-        location: stall.location
-    }));
+    if (compare) {
+        // Get reranked results
+        const rerankedResults = await rerankResults(query, processedResults);
+        const formattedReranked = rerankedResults.slice(0, 10).map(formatStallResult);
+
+        return {
+            standard: standardResults,
+            reranked: formattedReranked
+        };
+    }
+
+    return standardResults;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -186,7 +264,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { mode, query, latitude, longitude, cuisine, proximity, affordability, comments } = req.body;
+    const { mode, query, latitude, longitude, cuisine, proximity, affordability, comments, compare } = req.body;
 
     //if (!latitude || !longitude) {
     //    return res.status(400).json({ error: 'Location coordinates are required' });
@@ -197,8 +275,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             // Use semantic-only search when location isn't available
             const hasLocation = latitude !== null && longitude !== null;
             const results = hasLocation
-                ? await performHybridSearch(query, latitude, longitude)
-                : await performSemanticOnlySearch(query);
+                ? await performHybridSearch(query, latitude, longitude, compare)
+                : await performSemanticOnlySearch(query, compare);
             return res.status(200).json(results);
         } else {
             // For guided search, still require location

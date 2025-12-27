@@ -19,6 +19,9 @@ export default function Home() {
     const [affordabilityValue, setAffordabilityValue] = useState(2); // Default to 2 ($$)
     const [comments, setComments] = useState('');
     const [results, setResults] = useState<any[]>([]);
+    const [standardResults, setStandardResults] = useState<any[]>([]);
+    const [rerankedResults, setRerankedResults] = useState<any[]>([]);
+    const [compareMode, setCompareMode] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
@@ -140,10 +143,13 @@ export default function Home() {
         }
     };
 
-    const handleFreeSearch = async (query: string) => {
+    const handleFreeSearch = async (query: string, compare: boolean = false) => {
         setLoading(true);
         setError(null);
         setResults([]);
+        setStandardResults([]);
+        setRerankedResults([]);
+        setCompareMode(compare);
 
         try {
             const response = await fetch('/api/search', {
@@ -152,6 +158,7 @@ export default function Home() {
                 body: JSON.stringify({
                     query,
                     mode: 'free',
+                    compare,
                     latitude: location ? location.latitude : null,
                     longitude: location ? location.longitude : null,
                 }),
@@ -159,14 +166,22 @@ export default function Home() {
 
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
-            setResults(data);
 
-            // Track the search event
-            trackSearch(query, 'free', data.length);
+            if (compare && data.standard && data.reranked) {
+                // Compare mode: set both result sets
+                setStandardResults(data.standard);
+                setRerankedResults(data.reranked);
+                // Track the search event
+                trackSearch(query, 'free-compare', data.standard.length);
+            } else {
+                // Normal mode: set single result set
+                setResults(data);
+                trackSearch(query, 'free', data.length);
+            }
 
             // Log the search to Supabase
             logSearch({
-                search_mode: 'free',
+                search_mode: compare ? 'free-compare' : 'free',
                 query,
                 cuisine: null,
                 proximity: null,
@@ -174,7 +189,7 @@ export default function Home() {
                 comments: null,
                 latitude: location ? location.latitude : null,
                 longitude: location ? location.longitude : null,
-                results_count: data.length
+                results_count: compare ? data.standard?.length : data.length
             });
         } catch (err) {
             setError('An error occurred. Please try again.');
@@ -440,7 +455,79 @@ export default function Home() {
             )}
             {error && <div className="mt-4 text-red-500 text-center">{error}</div>}
 
-            {results.length > 0 ? (
+            {/* Comparison Mode: Side-by-side results */}
+            {compareMode && (standardResults.length > 0 || rerankedResults.length > 0) ? (
+                <div className="mt-6 w-full max-w-5xl">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Standard Results Column */}
+                        <div>
+                            <h3 className="text-lg font-bold mb-3 text-center bg-gray-200 p-2 rounded-t-md">
+                                Standard Search
+                                <span className="block text-xs font-normal text-gray-600">
+                                    (Embedding + Recency)
+                                </span>
+                            </h3>
+                            <div className="space-y-3">
+                                {standardResults.map((stall, index) => (
+                                    <div
+                                        key={`standard-${stall.place_id}`}
+                                        className="p-3 bg-white rounded-md shadow border-l-4 border-gray-400"
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <span className="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-1 rounded">
+                                                #{index + 1}
+                                            </span>
+                                            <div className="flex-1">
+                                                <h2 className="text-md font-semibold">{stall.name}</h2>
+                                                <p className="text-xs text-gray-600">{stall.cuisine} · {stall.affordability}</p>
+                                                {stall.similarity && (
+                                                    <p className="text-xs text-gray-500">
+                                                        Similarity: {(stall.similarity * 100).toFixed(1)}%
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Reranked Results Column */}
+                        <div>
+                            <h3 className="text-lg font-bold mb-3 text-center bg-blue-100 p-2 rounded-t-md">
+                                Cohere Rerank
+                                <span className="block text-xs font-normal text-blue-600">
+                                    (Cross-encoder reranking)
+                                </span>
+                            </h3>
+                            <div className="space-y-3">
+                                {rerankedResults.map((stall, index) => (
+                                    <div
+                                        key={`reranked-${stall.place_id}`}
+                                        className="p-3 bg-white rounded-md shadow border-l-4 border-blue-500"
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded">
+                                                #{index + 1}
+                                            </span>
+                                            <div className="flex-1">
+                                                <h2 className="text-md font-semibold">{stall.name}</h2>
+                                                <p className="text-xs text-gray-600">{stall.cuisine} · {stall.affordability}</p>
+                                                {stall.cohereScore !== undefined && (
+                                                    <p className="text-xs text-blue-600">
+                                                        Cohere Score: {(stall.cohereScore * 100).toFixed(1)}%
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : results.length > 0 ? (
+                /* Normal Mode: Single column results */
                 <div className="mt-6 w-full max-w-md space-y-4">
                     {results.map((stall, index) => (
                         <div
@@ -460,19 +547,12 @@ export default function Home() {
                             <p className="text-sm text-gray-600">
                                 Location: {
                                     (() => {
-                                        // Improved regex to catch all case variations of "not specified", "not available", etc.
                                         const isNonSpecificLocation = !stall.location ||
                                             /(?:not|Not|NOT)\s+(?:specified|Specified|SPECIFIED|available|Available|AVAILABLE)|(?:n\/?a|N\/?A)|(?:unknown|Unknown|UNKNOWN)|(?:nil|Nil|NIL)/i.test(stall.location);
 
-                                        // Text to display - use coordinates only when location is non-specific
                                         const displayText = isNonSpecificLocation && stall.latitude && stall.longitude ?
                                             `${stall.latitude.toFixed(5)}, ${stall.longitude.toFixed(5)}` :
                                             (stall.location || "Search on Maps");
-
-                                        // URL for Google Maps - always prioritize coordinates when available
-                                        const mapsUrl = stall.latitude && stall.longitude ?
-                                            `https://maps.google.com/maps?q=${stall.latitude},${stall.longitude}` :
-                                            `https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`;
 
                                         return (
                                             <a
@@ -489,7 +569,6 @@ export default function Home() {
                                 }
                             </p>
 
-                            {/* Add review summary */}
                             {stall.review_summary && (
                                 <div className="mt-2">
                                     <details>
@@ -503,8 +582,8 @@ export default function Home() {
                                 <summary className="text-blue-600 cursor-pointer">Recommended Dishes</summary>
                                 <ul className="list-disc pl-5 mt-1 text-sm">
                                     {Array.isArray(stall.recommended_dishes) ?
-                                        stall.recommended_dishes.map((dish, index) => (
-                                            <li key={index}>{dish}</li>
+                                        stall.recommended_dishes.map((dish, idx) => (
+                                            <li key={idx}>{dish}</li>
                                         )) :
                                         <li>{stall.recommended_dishes}</li>
                                     }
@@ -513,21 +592,21 @@ export default function Home() {
                             <div className="mt-2">
                                 <span className="text-sm text-gray-600">
                                     Source:
-                                    {stall.source.split(',').map((sourceName, index) => {
+                                    {stall.source.split(',').map((sourceName, idx) => {
                                         const trimmedName = sourceName.trim();
                                         const urls = stall.source_url.split(';');
-                                        const url = index < urls.length ? urls[index].trim() : '';
+                                        const url = idx < urls.length ? urls[idx].trim() : '';
 
                                         return (
-                                            <Fragment key={index}>
-                                                {index > 0 && ', '}
+                                            <Fragment key={idx}>
+                                                {idx > 0 && ', '}
                                                 {url ? (
                                                     <a
                                                         href={url}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
                                                         className="text-blue-500 hover:underline ml-1"
-                                                        onClick={() => trackResultClick(`${stall.name} (${trimmedName})`, index + 1)}
+                                                        onClick={() => trackResultClick(`${stall.name} (${trimmedName})`, idx + 1)}
                                                     >
                                                         {trimmedName}
                                                     </a>
@@ -543,7 +622,7 @@ export default function Home() {
                     ))}
                 </div>
             ) : (
-                !loading && !error && <div className="mt-4 text-center">No results found. Try adjusting your search criteria.</div>
+                !loading && !error && !compareMode && <div className="mt-4 text-center">No results found. Try adjusting your search criteria.</div>
             )}
             <div className="mt-8 mb-4">
                 <a
