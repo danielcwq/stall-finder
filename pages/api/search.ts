@@ -76,6 +76,57 @@ function buildDocumentText(stall: Stall): string {
     ].filter(Boolean).join('. ');
 }
 
+/**
+ * Calculate substring match score for a stall name against query keywords.
+ * Returns a score based on how well the stall name matches the query.
+ */
+function calculateNameMatchScore(query: string, stallName: string): number {
+    const queryLower = query.toLowerCase();
+    const nameLower = stallName.toLowerCase();
+    const queryWords = queryLower.split(/\s+/).filter(w => w.length > 2);
+
+    let score = 0;
+
+    // Check each query word against the stall name
+    for (const word of queryWords) {
+        if (nameLower.includes(word)) {
+            score += word.length; // Longer matches = higher score
+        }
+    }
+
+    // Bonus for exact phrase match
+    if (nameLower.includes(queryLower)) {
+        score += 100;
+    }
+
+    return score;
+}
+
+/**
+ * Boost candidates with name matches to the front of results.
+ * Preserves original order for non-matching items.
+ */
+function boostNameMatches<T extends Record<string, any> & { name: string }>(query: string, candidates: T[]): T[] {
+    const scored = candidates.map((candidate, originalIndex) => ({
+        candidate,
+        nameScore: calculateNameMatchScore(query, candidate.name),
+        originalIndex,
+    }));
+
+    // Separate matches from non-matches
+    const matches = scored.filter(s => s.nameScore > 0).sort((a, b) => b.nameScore - a.nameScore);
+    const nonMatches = scored.filter(s => s.nameScore === 0);
+
+    // Log if we found name matches
+    if (matches.length > 0) {
+        console.log(`[Substring Match] Found ${matches.length} name matches for "${query}":`,
+            matches.slice(0, 3).map(m => m.candidate.name));
+    }
+
+    // Return matches first, then non-matches in original order
+    return [...matches.map(m => m.candidate), ...nonMatches.map(m => m.candidate)];
+}
+
 // Rerank results using Cohere
 async function rerankResults(query: string, candidates: Stall[]): Promise<Stall[]> {
     if (candidates.length === 0) return [];
@@ -179,23 +230,28 @@ async function performSemanticOnlySearch(query: string, compare: boolean = false
     // Process results without distance calculation
     const processedResults = results.map(stall => {
         const recencyScore = calculateRecencyScore(stall.date_published);
+        const nameMatchScore = calculateNameMatchScore(query, stall.name);
         return {
             ...stall,
             distance: null,
             recencyScore,
-            adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
+            nameMatchScore,
+            // Add name match bonus to similarity (0.2 boost for strong matches)
+            adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3) + (nameMatchScore > 0 ? 0.2 : 0)
         };
     });
 
-    // Sort by adjusted similarity for standard results
-    const standardResults = [...processedResults]
+    // Boost name matches, then sort by adjusted similarity for standard results
+    const boostedResults = boostNameMatches(query, processedResults);
+    const standardResults = [...boostedResults]
         .sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity)
         .slice(0, 10)
         .map(formatStallResult);
 
     if (compare) {
-        // Get reranked results
-        const rerankedResults = await rerankResults(query, processedResults);
+        // Boost name matches before reranking so Cohere sees them first
+        const boostedForRerank = boostNameMatches(query, processedResults) as Stall[];
+        const rerankedResults = await rerankResults(query, boostedForRerank);
         const formattedReranked = rerankedResults.slice(0, 10).map(formatStallResult);
 
         return {
@@ -247,23 +303,28 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
             console.error('Error calculating metrics:', e);
         }
 
+        const nameMatchScore = calculateNameMatchScore(query, stall.name);
         return {
             ...stall,
             distance,
             recencyScore,
-            adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3)
+            nameMatchScore,
+            // Add name match bonus to similarity (0.2 boost for strong matches)
+            adjustedSimilarity: (stall.similarity * 0.7) + (recencyScore * 0.3) + (nameMatchScore > 0 ? 0.2 : 0)
         };
     });
 
-    // Sort by adjusted similarity for standard results
-    const standardResults = [...processedResults]
+    // Boost name matches, then sort by adjusted similarity for standard results
+    const boostedResults = boostNameMatches(query, processedResults);
+    const standardResults = [...boostedResults]
         .sort((a, b) => b.adjustedSimilarity - a.adjustedSimilarity)
         .slice(0, 10)
         .map(formatStallResult);
 
     if (compare) {
-        // Get reranked results
-        const rerankedResults = await rerankResults(query, processedResults);
+        // Boost name matches before reranking so Cohere sees them first
+        const boostedForRerank = boostNameMatches(query, processedResults) as Stall[];
+        const rerankedResults = await rerankResults(query, boostedForRerank);
         const formattedReranked = rerankedResults.slice(0, 10).map(formatStallResult);
 
         return {
@@ -590,17 +651,22 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
                         semanticResults.map(item => [item.place_id, item.similarity])
                     );
 
-                    filteredStalls = filteredStalls.map(stall => ({
-                        ...stall,
-                        semanticScore: semanticScores.get(stall.place_id) || 0,
-                        similarity: semanticScores.get(stall.place_id) || 0,
-                        // Adjust distance by semantic relevance and recency
-                        // 60% weight to distance, 30% to semantic, 10% to recency
-                        adjustedDistance: Number(stall.distance) *
-                            (1 - (Number(semanticScores.get(stall.place_id) || 0) * 0.3) - (stall.recencyScore * 0.1))
-                    }));
+                    filteredStalls = filteredStalls.map(stall => {
+                        const nameMatchScore = calculateNameMatchScore(comments, stall.name);
+                        return {
+                            ...stall,
+                            semanticScore: semanticScores.get(stall.place_id) || 0,
+                            similarity: semanticScores.get(stall.place_id) || 0,
+                            nameMatchScore,
+                            // Adjust distance by semantic relevance, recency, and name match
+                            // Name match gives a 20% boost (reduces adjusted distance)
+                            adjustedDistance: Number(stall.distance) *
+                                (1 - (Number(semanticScores.get(stall.place_id) || 0) * 0.3) - (stall.recencyScore * 0.1) - (nameMatchScore > 0 ? 0.2 : 0))
+                        };
+                    });
 
-                    // Sort by adjusted distance
+                    // Boost name matches to front, then sort by adjusted distance
+                    filteredStalls = boostNameMatches(comments, filteredStalls);
                     filteredStalls.sort((a, b) => a.adjustedDistance - b.adjustedDistance);
                 }
             } else {
@@ -648,7 +714,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             if (compare && filteredStalls.length > 0) {
                 // Rerank using Cohere
                 const rerankQuery = buildRerankQuery();
-                const rerankedStalls = await rerankResults(rerankQuery, filteredStalls);
+                // Boost name matches before reranking so Cohere sees them first
+                const boostedForRerank = boostNameMatches(rerankQuery, filteredStalls) as Stall[];
+                const rerankedStalls = await rerankResults(rerankQuery, boostedForRerank);
 
                 const rerankedResults = rerankedStalls.slice(0, 10).map(stall => ({
                     place_id: stall.place_id,
