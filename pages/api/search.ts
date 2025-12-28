@@ -393,24 +393,52 @@ async function performAgentSearch(
         }));
 
         trace.distance_filter.before_count = candidates.length;
-        trace.distance_filter.radius_km = AGENT_CONFIG.DEFAULT_RADIUS_KM;
+
+        // Determine radius based on location_intent
+        let radiusKm: number | null = null;
+        switch (parsed.location_intent) {
+            case 'closest':
+                // No radius cap - just sort by distance and return closest
+                radiusKm = null;
+                break;
+            case 'nearby':
+                radiusKm = AGENT_CONFIG.NEARBY_RADIUS_KM;
+                break;
+            case 'in_area':
+                radiusKm = AGENT_CONFIG.IN_AREA_RADIUS_KM;
+                break;
+            default:
+                radiusKm = AGENT_CONFIG.DEFAULT_RADIUS_KM;
+        }
+
+        trace.distance_filter.radius_km = radiusKm ?? 0;
 
         if (searchCenter) {
             trace.distance_filter.center = searchCenter;
 
-            // Calculate distance and filter
-            candidates = candidates
-                .map(stall => ({
-                    ...stall,
-                    distance: calculateDistance(
-                        searchCenter!.lat,
-                        searchCenter!.lng,
-                        stall.latitude,
-                        stall.longitude
-                    ),
-                }))
-                .filter(stall => stall.distance! <= AGENT_CONFIG.DEFAULT_RADIUS_KM)
-                .sort((a, b) => a.distance! - b.distance!);
+            // Calculate distance for all candidates
+            candidates = candidates.map(stall => ({
+                ...stall,
+                distance: calculateDistance(
+                    searchCenter!.lat,
+                    searchCenter!.lng,
+                    stall.latitude,
+                    stall.longitude
+                ),
+            }));
+
+            // Apply radius filter (unless "closest" intent which has no cap)
+            if (radiusKm !== null) {
+                candidates = candidates.filter(stall => stall.distance! <= radiusKm!);
+            }
+
+            // Sort by distance (closest first)
+            candidates = candidates.sort((a, b) => a.distance! - b.distance!);
+
+            // For "closest" intent, limit to reasonable number for LLM ranking
+            if (parsed.location_intent === 'closest') {
+                candidates = candidates.slice(0, AGENT_CONFIG.MAX_RANKING_CANDIDATES);
+            }
         }
 
         trace.distance_filter.after_count = candidates.length;

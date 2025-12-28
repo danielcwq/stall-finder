@@ -23,6 +23,11 @@ Return a JSON object with these fields:
 - food_query: The core search term - include restaurant/stall names, dish names, and descriptors (required, string)
 - location_name: Named location if mentioned, e.g., "Bugis", "Orchard" (string or null)
 - use_current_location: true if user said "near me", "nearby", "around here", etc. (boolean)
+- location_intent: How user wants location handled (string or null):
+  - "closest" if user wants THE nearest options: "closest to me", "nearest", "find the closest"
+  - "nearby" if user wants options within walking distance: "near me", "nearby", "around here"
+  - "in_area" if user specified a location name: "in Bugis", "at Orchard", "around Chinatown"
+  - null if no location preference expressed
 - cuisine: Cuisine type if mentioned, e.g., "Chinese", "Malay", "Indian" (string or null)
 - price: Price preference - "cheap", "moderate", or "expensive" (string or null)
 - exclusions: Array of things to exclude, e.g., ["no pork", "not too oily"] (string array)
@@ -31,32 +36,35 @@ IMPORTANT RULES:
 1. food_query MUST include any specific restaurant or stall names mentioned (e.g., "Chindamani", "Tian Tian", "Hill Street")
 2. food_query should contain the main search keywords - don't drop important words
 3. If no specific location is mentioned, set location_name to null
-4. "Near me", "nearby", "around here", "close by" → use_current_location: true
+4. Distinguish between "closest" (wants THE nearest) vs "nearby" (wants options in general area)
 5. For price, map words like "affordable", "budget" → "cheap"; "premium", "high-end" → "expensive"
 6. Only include exclusions explicitly stated by the user
 
 Examples:
 
+Query: "closest chicken rice to me"
+{"food_query": "chicken rice", "location_name": null, "use_current_location": true, "location_intent": "closest", "cuisine": null, "price": null, "exclusions": []}
+
+Query: "chicken rice near me"
+{"food_query": "chicken rice", "location_name": null, "use_current_location": true, "location_intent": "nearby", "cuisine": null, "price": null, "exclusions": []}
+
 Query: "spicy laksa near Bugis"
-{"food_query": "spicy laksa", "location_name": "Bugis", "use_current_location": false, "cuisine": null, "price": null, "exclusions": []}
+{"food_query": "spicy laksa", "location_name": "Bugis", "use_current_location": false, "location_intent": "in_area", "cuisine": null, "price": null, "exclusions": []}
 
 Query: "chindamani indian restaurant"
-{"food_query": "chindamani indian restaurant", "location_name": null, "use_current_location": false, "cuisine": "Indian", "price": null, "exclusions": []}
+{"food_query": "chindamani indian restaurant", "location_name": null, "use_current_location": false, "location_intent": null, "cuisine": "Indian", "price": null, "exclusions": []}
 
-Query: "tian tian chicken rice"
-{"food_query": "tian tian chicken rice", "location_name": null, "use_current_location": false, "cuisine": "Chinese", "price": null, "exclusions": []}
+Query: "find the nearest roti prata"
+{"food_query": "roti prata", "location_name": null, "use_current_location": true, "location_intent": "closest", "cuisine": "Indian", "price": null, "exclusions": []}
 
-Query: "cheap chicken rice near me"
-{"food_query": "chicken rice", "location_name": null, "use_current_location": true, "cuisine": null, "price": "cheap", "exclusions": []}
+Query: "cheap food around Orchard"
+{"food_query": "cheap food", "location_name": "Orchard", "use_current_location": false, "location_intent": "in_area", "cuisine": null, "price": "cheap", "exclusions": []}
 
 Query: "best hokkien mee"
-{"food_query": "best hokkien mee", "location_name": null, "use_current_location": false, "cuisine": null, "price": null, "exclusions": []}
+{"food_query": "best hokkien mee", "location_name": null, "use_current_location": false, "location_intent": null, "cuisine": null, "price": null, "exclusions": []}
 
 Query: "halal nasi lemak at Geylang"
-{"food_query": "halal nasi lemak", "location_name": "Geylang", "use_current_location": false, "cuisine": "Malay", "price": null, "exclusions": []}
-
-Query: "not too oily char kway teow nearby"
-{"food_query": "char kway teow", "location_name": null, "use_current_location": true, "cuisine": null, "price": null, "exclusions": ["not too oily"]}
+{"food_query": "halal nasi lemak", "location_name": "Geylang", "use_current_location": false, "location_intent": "in_area", "cuisine": "Malay", "price": null, "exclusions": []}
 
 Respond ONLY with valid JSON, no explanation.`;
 
@@ -142,6 +150,7 @@ function parseJsonResponse(response: string): ParsedQuery {
       food_query: String(parsed.food_query || '').trim(),
       location_name: parsed.location_name ? String(parsed.location_name).trim() : null,
       use_current_location: Boolean(parsed.use_current_location),
+      location_intent: normalizeLocationIntent(parsed.location_intent),
       cuisine: parsed.cuisine ? String(parsed.cuisine).trim() : null,
       price: normalizePrice(parsed.price),
       exclusions: Array.isArray(parsed.exclusions)
@@ -170,6 +179,27 @@ function normalizePrice(price: unknown): 'cheap' | 'moderate' | 'expensive' | nu
   }
   if (['expensive', 'premium', 'high', 'high-end'].includes(normalized)) {
     return 'expensive';
+  }
+
+  return null;
+}
+
+/**
+ * Normalize location_intent value to expected enum values.
+ */
+function normalizeLocationIntent(intent: unknown): 'closest' | 'nearby' | 'in_area' | null {
+  if (!intent) return null;
+
+  const normalized = String(intent).toLowerCase().trim();
+
+  if (['closest', 'nearest'].includes(normalized)) {
+    return 'closest';
+  }
+  if (['nearby', 'near'].includes(normalized)) {
+    return 'nearby';
+  }
+  if (['in_area', 'in area', 'inarea'].includes(normalized)) {
+    return 'in_area';
   }
 
   return null;
