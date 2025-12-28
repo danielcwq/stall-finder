@@ -20,7 +20,7 @@ const PARSE_SYSTEM_PROMPT = `You are a food search query parser for Singapore ha
 Extract structured parameters from the user's natural language query.
 
 Return a JSON object with these fields:
-- food_query: The core food/dish being searched for (required, string)
+- food_query: The core search term - include restaurant/stall names, dish names, and descriptors (required, string)
 - location_name: Named location if mentioned, e.g., "Bugis", "Orchard" (string or null)
 - use_current_location: true if user said "near me", "nearby", "around here", etc. (boolean)
 - cuisine: Cuisine type if mentioned, e.g., "Chinese", "Malay", "Indian" (string or null)
@@ -28,22 +28,29 @@ Return a JSON object with these fields:
 - exclusions: Array of things to exclude, e.g., ["no pork", "not too oily"] (string array)
 
 IMPORTANT RULES:
-1. If no specific location is mentioned, set location_name to null
-2. "Near me", "nearby", "around here", "close by" → use_current_location: true
-3. For price, map words like "affordable", "budget" → "cheap"; "premium", "high-end" → "expensive"
-4. The food_query should capture the essence of what food the user wants
-5. Only include exclusions explicitly stated by the user
+1. food_query MUST include any specific restaurant or stall names mentioned (e.g., "Chindamani", "Tian Tian", "Hill Street")
+2. food_query should contain the main search keywords - don't drop important words
+3. If no specific location is mentioned, set location_name to null
+4. "Near me", "nearby", "around here", "close by" → use_current_location: true
+5. For price, map words like "affordable", "budget" → "cheap"; "premium", "high-end" → "expensive"
+6. Only include exclusions explicitly stated by the user
 
 Examples:
 
 Query: "spicy laksa near Bugis"
 {"food_query": "spicy laksa", "location_name": "Bugis", "use_current_location": false, "cuisine": null, "price": null, "exclusions": []}
 
+Query: "chindamani indian restaurant"
+{"food_query": "chindamani indian restaurant", "location_name": null, "use_current_location": false, "cuisine": "Indian", "price": null, "exclusions": []}
+
+Query: "tian tian chicken rice"
+{"food_query": "tian tian chicken rice", "location_name": null, "use_current_location": false, "cuisine": "Chinese", "price": null, "exclusions": []}
+
 Query: "cheap chicken rice near me"
 {"food_query": "chicken rice", "location_name": null, "use_current_location": true, "cuisine": null, "price": "cheap", "exclusions": []}
 
 Query: "best hokkien mee"
-{"food_query": "hokkien mee", "location_name": null, "use_current_location": false, "cuisine": null, "price": null, "exclusions": []}
+{"food_query": "best hokkien mee", "location_name": null, "use_current_location": false, "cuisine": null, "price": null, "exclusions": []}
 
 Query: "halal nasi lemak at Geylang"
 {"food_query": "halal nasi lemak", "location_name": "Geylang", "use_current_location": false, "cuisine": "Malay", "price": null, "exclusions": []}

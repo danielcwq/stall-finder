@@ -37,20 +37,20 @@ Here are the candidate food stalls. Rank them by relevance to the user's search.
 
 ${candidateDescriptions}
 
-INSTRUCTIONS:
-1. Consider how well each stall matches the food query
-2. Prefer stalls with relevant dishes or specialties
-3. Consider distance (closer is generally better, but not if irrelevant)
-4. Consider reviews mentioning the searched food
-5. Return the stall numbers in order of relevance, most relevant first
+INSTRUCTIONS (in order of priority):
+1. **NAME MATCH IS HIGHEST PRIORITY**: If the search contains a restaurant/stall name (e.g., "chindamani", "tian tian", "hill street"), stalls with matching names MUST be ranked first
+2. Prefer stalls with relevant dishes or specialties matching the food query
+3. Consider reviews mentioning the searched food
+4. Consider distance (closer is generally better)
+5. Return at least 10 stall numbers if available
 
 Respond with ONLY a JSON object in this format:
 {
-  "ranked_ids": [3, 1, 5, 2, 4],
+  "ranked_ids": [3, 1, 5, 2, 4, 7, 8, 9, 10, 6],
   "reasoning": "Brief explanation of top picks"
 }
 
-Where ranked_ids contains the stall numbers (1-indexed) in order of relevance.`;
+Where ranked_ids contains the stall numbers (1-indexed) in order of relevance. Include at least 10 results.`;
 }
 
 /**
@@ -83,6 +83,39 @@ export interface RankWithLLMResult {
 }
 
 /**
+ * Find candidates with names matching the query keywords using simple substring matching.
+ * Returns indices of matching candidates, sorted by match quality.
+ */
+function findNameMatches(foodQuery: string, candidates: Stall[]): number[] {
+  const queryWords = foodQuery.toLowerCase().split(/\s+/).filter(w => w.length > 2);
+  const matches: { index: number; score: number }[] = [];
+
+  candidates.forEach((stall, index) => {
+    const stallName = stall.name.toLowerCase();
+    let score = 0;
+
+    // Check each query word against the stall name
+    for (const word of queryWords) {
+      if (stallName.includes(word)) {
+        score += word.length; // Longer matches = higher score
+      }
+    }
+
+    // Bonus for exact phrase match
+    if (stallName.includes(foodQuery.toLowerCase())) {
+      score += 100;
+    }
+
+    if (score > 0) {
+      matches.push({ index, score });
+    }
+  });
+
+  // Sort by score descending
+  return matches.sort((a, b) => b.score - a.score).map(m => m.index);
+}
+
+/**
  * Rank food stall candidates using Cohere LLM.
  *
  * @param foodQuery - The food the user is searching for
@@ -107,6 +140,20 @@ export async function rankWithLLM(
       latency_ms: 0,
       model,
     };
+  }
+
+  // Pre-filter: Find name matches first using simple substring matching
+  const nameMatchIndices = findNameMatches(foodQuery, candidates);
+
+  // If we have name matches, prioritize them at the front
+  if (nameMatchIndices.length > 0) {
+    console.log(`[Substring Match] Found ${nameMatchIndices.length} name matches for "${foodQuery}":`,
+      nameMatchIndices.slice(0, 5).map(i => candidates[i].name));
+
+    // Put name matches at the front, then fill with others
+    const nameMatchCandidates = nameMatchIndices.map(i => candidates[i]);
+    const otherCandidates = candidates.filter((_, i) => !nameMatchIndices.includes(i));
+    candidates = [...nameMatchCandidates, ...otherCandidates];
   }
 
   // Limit candidates to prevent token overflow

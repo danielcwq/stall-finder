@@ -154,13 +154,10 @@ export async function logTraceToSupabase(trace: SearchTrace): Promise<void> {
 
     if (error) {
       // Table might not exist yet - just log to console
-      console.warn('Failed to log trace to Supabase:', error.message);
-      console.log('Trace summary:', JSON.stringify(createTraceSummary(trace), null, 2));
+      console.warn('Failed to log trace to Supabase:', error.message || error.code || JSON.stringify(error));
     }
   } catch (error) {
     console.warn('Error logging trace:', error);
-    // Always log to console as fallback
-    console.log('Trace summary:', JSON.stringify(createTraceSummary(trace), null, 2));
   }
 }
 
