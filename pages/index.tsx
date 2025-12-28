@@ -143,6 +143,13 @@ export default function Home() {
         }
     };
 
+    // State for agent search metadata
+    const [agentMetadata, setAgentMetadata] = useState<{
+        parsed?: any;
+        reasoning?: string;
+        summary?: any;
+    } | null>(null);
+
     const handleFreeSearch = async (query: string, compare: boolean = false, useAgent: boolean = false) => {
         setLoading(true);
         setError(null);
@@ -150,11 +157,7 @@ export default function Home() {
         setStandardResults([]);
         setRerankedResults([]);
         setCompareMode(compare);
-
-        // TODO: Implement agent mode when ready
-        if (useAgent) {
-            console.log('Agent mode triggered - not yet implemented');
-        }
+        setAgentMetadata(null);
 
         try {
             const response = await fetch('/api/search', {
@@ -164,7 +167,7 @@ export default function Home() {
                     query,
                     mode: 'free',
                     compare,
-                    useAgent, // Pass to API for future use
+                    useAgent,
                     latitude: location ? location.latitude : null,
                     longitude: location ? location.longitude : null,
                 }),
@@ -173,30 +176,62 @@ export default function Home() {
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
 
-            if (compare && data.standard && data.reranked) {
+            if (useAgent && data.results) {
+                // Agent mode: response has { results, parsed, reasoning, summary }
+                setResults(data.results);
+                setAgentMetadata({
+                    parsed: data.parsed,
+                    reasoning: data.reasoning,
+                    summary: data.summary,
+                });
+                trackSearch(query, 'free-agent', data.results.length);
+
+                // Log the search
+                logSearch({
+                    search_mode: 'free-agent',
+                    query,
+                    cuisine: data.parsed?.cuisine || null,
+                    proximity: null,
+                    affordability: data.parsed?.price || null,
+                    comments: null,
+                    latitude: location ? location.latitude : null,
+                    longitude: location ? location.longitude : null,
+                    results_count: data.results.length
+                });
+            } else if (compare && data.standard && data.reranked) {
                 // Compare mode: set both result sets
                 setStandardResults(data.standard);
                 setRerankedResults(data.reranked);
-                // Track the search event
                 trackSearch(query, 'free-compare', data.standard.length);
+
+                logSearch({
+                    search_mode: 'free-compare',
+                    query,
+                    cuisine: null,
+                    proximity: null,
+                    affordability: null,
+                    comments: null,
+                    latitude: location ? location.latitude : null,
+                    longitude: location ? location.longitude : null,
+                    results_count: data.standard?.length
+                });
             } else {
                 // Normal mode: set single result set
                 setResults(data);
                 trackSearch(query, 'free', data.length);
-            }
 
-            // Log the search to Supabase
-            logSearch({
-                search_mode: compare ? 'free-compare' : 'free',
-                query,
-                cuisine: null,
-                proximity: null,
-                affordability: null,
-                comments: null,
-                latitude: location ? location.latitude : null,
-                longitude: location ? location.longitude : null,
-                results_count: compare ? data.standard?.length : data.length
-            });
+                logSearch({
+                    search_mode: 'free',
+                    query,
+                    cuisine: null,
+                    proximity: null,
+                    affordability: null,
+                    comments: null,
+                    latitude: location ? location.latitude : null,
+                    longitude: location ? location.longitude : null,
+                    results_count: data.length
+                });
+            }
         } catch (err) {
             setError('An error occurred. Please try again.');
         } finally {
@@ -630,6 +665,47 @@ export default function Home() {
             ) : results.length > 0 ? (
                 /* Normal Mode: Single column results */
                 <div className="mt-6 w-full max-w-md space-y-4">
+                    {/* Agent Search Metadata Panel */}
+                    {agentMetadata && (
+                        <div className="p-4 bg-purple-50 border border-purple-200 rounded-md">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs bg-purple-200 text-purple-700 px-2 py-0.5 rounded font-medium">
+                                    Agent Search
+                                </span>
+                                {agentMetadata.summary && (
+                                    <span className="text-xs text-purple-600">
+                                        {agentMetadata.summary.timings?.total_ms}ms
+                                    </span>
+                                )}
+                            </div>
+                            {agentMetadata.parsed && (
+                                <div className="text-xs text-purple-700 mb-2">
+                                    <span className="font-medium">Understood: </span>
+                                    "{agentMetadata.parsed.food_query}"
+                                    {agentMetadata.parsed.location_name && (
+                                        <span> near <strong>{agentMetadata.parsed.location_name}</strong></span>
+                                    )}
+                                    {agentMetadata.parsed.use_current_location && (
+                                        <span> <strong>near you</strong></span>
+                                    )}
+                                    {agentMetadata.parsed.cuisine && (
+                                        <span> ({agentMetadata.parsed.cuisine})</span>
+                                    )}
+                                    {agentMetadata.parsed.price && (
+                                        <span> [{agentMetadata.parsed.price}]</span>
+                                    )}
+                                </div>
+                            )}
+                            {agentMetadata.reasoning && (
+                                <details className="text-xs">
+                                    <summary className="text-purple-600 cursor-pointer font-medium">
+                                        Why these results?
+                                    </summary>
+                                    <p className="mt-1 text-purple-700">{agentMetadata.reasoning}</p>
+                                </details>
+                            )}
+                        </div>
+                    )}
                     {results.map((stall, index) => (
                         <div
                             key={stall.place_id}

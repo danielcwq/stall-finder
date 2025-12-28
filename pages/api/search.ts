@@ -3,6 +3,22 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import OpenAI from 'openai';
 import { CohereClient } from 'cohere-ai';
 
+// Agent search imports
+import {
+    parseQuery,
+    geocode,
+    rankWithLLM,
+    createEmptyTrace,
+    addTraceError,
+    finalizeTrace,
+    logTraceToConsole,
+    logTraceToSupabase,
+    createTraceSummary,
+    AGENT_CONFIG,
+    Stall as AgentStall,
+    Coords,
+} from '../../utils/agent';
+
 console.log('Environment variables check:', {
     supabaseUrl: process.env.SUPABASE_URL ? 'defined' : 'undefined',
     supabaseKey: process.env.SUPABASE_ANON_KEY ? 'defined' : 'undefined',
@@ -259,18 +275,242 @@ async function performHybridSearch(query: string, latitude: number, longitude: n
     return standardResults;
 }
 
+// Agent-powered search function
+async function performAgentSearch(
+    query: string,
+    userLocation: Coords | null,
+    debug: boolean = false
+) {
+    const trace = createEmptyTrace(query, userLocation);
+
+    try {
+        // Step 1: Parse the query using LLM
+        const parseStart = Date.now();
+        const parseResult = await parseQuery(query);
+        trace.parsing = {
+            prompt: query,
+            raw_response: parseResult.raw_response,
+            parsed: parseResult.parsed,
+            latency_ms: parseResult.latency_ms,
+            model: parseResult.model,
+        };
+
+        const parsed = parseResult.parsed;
+
+        // Step 2: Determine search center (geocode or user location)
+        let searchCenter: Coords | null = null;
+        const geocodeStart = Date.now();
+
+        if (parsed.location_name) {
+            // Geocode the named location
+            const geoResult = await geocode(parsed.location_name);
+            if (geoResult) {
+                searchCenter = { lat: geoResult.lat, lng: geoResult.lng };
+                trace.geocoding = {
+                    input: parsed.location_name,
+                    output: searchCenter,
+                    source: geoResult.source,
+                    latency_ms: Date.now() - geocodeStart,
+                };
+            } else {
+                trace.geocoding = {
+                    input: parsed.location_name,
+                    output: null,
+                    source: 'skipped',
+                    latency_ms: Date.now() - geocodeStart,
+                    error: 'Geocoding returned no results',
+                };
+                addTraceError(trace, 'geocoding', `Could not geocode "${parsed.location_name}"`);
+            }
+        } else if (parsed.use_current_location && userLocation) {
+            // Use user's current location
+            searchCenter = userLocation;
+            trace.geocoding = {
+                input: 'user_location',
+                output: searchCenter,
+                source: 'user_location',
+                latency_ms: 0,
+            };
+        } else {
+            // No location filtering
+            trace.geocoding = {
+                input: null,
+                output: null,
+                source: 'skipped',
+                latency_ms: 0,
+            };
+        }
+
+        // Step 3: Query database with filters
+        const dbStart = Date.now();
+        let queryBuilder = supabase.from('stalls').select('*').eq('status', 'open');
+
+        // Apply cuisine filter if parsed
+        if (parsed.cuisine) {
+            queryBuilder = queryBuilder.ilike('cuisine', `%${parsed.cuisine}%`);
+        }
+
+        // Apply price filter if parsed
+        if (parsed.price) {
+            let affordabilityValues: string[] = [];
+            switch (parsed.price) {
+                case 'cheap':
+                    affordabilityValues = ['Affordable (< S$10)'];
+                    break;
+                case 'moderate':
+                    affordabilityValues = ['Mid-Range (S$10–S$20)'];
+                    break;
+                case 'expensive':
+                    affordabilityValues = ['Premium (> S$20)'];
+                    break;
+            }
+            if (affordabilityValues.length > 0) {
+                queryBuilder = queryBuilder.in('affordability', affordabilityValues);
+            }
+        }
+
+        const { data: dbResults, error: dbError } = await queryBuilder;
+
+        if (dbError) {
+            addTraceError(trace, 'database', dbError.message);
+            throw dbError;
+        }
+
+        trace.database = {
+            filters: {
+                cuisine: parsed.cuisine,
+                price: parsed.price,
+                status: 'open',
+            },
+            row_count: dbResults?.length || 0,
+            latency_ms: Date.now() - dbStart,
+        };
+
+        // Step 4: Distance filtering (if search center available)
+        let candidates: AgentStall[] = (dbResults || []).map(stall => ({
+            ...stall,
+            recommended_dishes: stall.recommended_dishes || [],
+        }));
+
+        trace.distance_filter.before_count = candidates.length;
+        trace.distance_filter.radius_km = AGENT_CONFIG.DEFAULT_RADIUS_KM;
+
+        if (searchCenter) {
+            trace.distance_filter.center = searchCenter;
+
+            // Calculate distance and filter
+            candidates = candidates
+                .map(stall => ({
+                    ...stall,
+                    distance: calculateDistance(
+                        searchCenter!.lat,
+                        searchCenter!.lng,
+                        stall.latitude,
+                        stall.longitude
+                    ),
+                }))
+                .filter(stall => stall.distance! <= AGENT_CONFIG.DEFAULT_RADIUS_KM)
+                .sort((a, b) => a.distance! - b.distance!);
+        }
+
+        trace.distance_filter.after_count = candidates.length;
+
+        // Step 5: LLM Ranking
+        if (candidates.length === 0) {
+            trace.ranking = {
+                food_query: parsed.food_query,
+                candidate_count: 0,
+                prompt: '',
+                raw_response: '',
+                ranked_ids: [],
+                reasoning: 'No candidates to rank',
+                latency_ms: 0,
+                model: AGENT_CONFIG.LLM_MODEL,
+            };
+        } else {
+            const rankResult = await rankWithLLM(parsed.food_query, candidates);
+            trace.ranking = {
+                food_query: parsed.food_query,
+                candidate_count: candidates.length,
+                prompt: '', // Could store the full prompt if needed
+                raw_response: rankResult.raw_response,
+                ranked_ids: rankResult.ranking.ranked_ids,
+                reasoning: rankResult.ranking.reasoning,
+                latency_ms: rankResult.latency_ms,
+                model: rankResult.model,
+            };
+        }
+
+        // Reorder candidates based on ranking
+        const rankedIds = trace.ranking.ranked_ids;
+        const idToCandidate = new Map(candidates.map(c => [c.place_id, c]));
+        const rankedCandidates = rankedIds
+            .map(id => idToCandidate.get(id))
+            .filter((c): c is AgentStall => c !== undefined);
+
+        // Finalize trace
+        trace.result_count = rankedCandidates.length;
+        finalizeTrace(trace);
+
+        // Log trace
+        logTraceToConsole(trace);
+        logTraceToSupabase(trace).catch(err => console.warn('Failed to log trace:', err));
+
+        // Format results
+        const results = rankedCandidates.slice(0, AGENT_CONFIG.TOP_N_RESULTS).map(stall => ({
+            place_id: stall.place_id,
+            name: stall.name,
+            distance: stall.distance ?? null,
+            cuisine: stall.cuisine,
+            affordability: stall.affordability,
+            recommended_dishes: stall.recommended_dishes,
+            source: stall.source,
+            source_url: stall.source_url,
+            date_published: stall.date_published,
+            review_summary: stall.review_summary,
+            location: stall.location,
+        }));
+
+        return {
+            results,
+            parsed: trace.parsing.parsed,
+            search_center: searchCenter,
+            reasoning: trace.ranking.reasoning,
+            trace: debug ? trace : undefined,
+            summary: createTraceSummary(trace),
+        };
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        addTraceError(trace, 'general', errorMessage);
+        finalizeTrace(trace);
+        logTraceToConsole(trace);
+
+        throw error;
+    }
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { mode, query, latitude, longitude, cuisine, proximity, affordability, comments, compare } = req.body;
+    const { mode, query, latitude, longitude, cuisine, proximity, affordability, comments, compare, useAgent, debug } = req.body;
 
     //if (!latitude || !longitude) {
     //    return res.status(400).json({ error: 'Location coordinates are required' });
     //}
 
     try {
+        // Agent-powered search for free mode
+        if (mode === 'free' && useAgent) {
+            const userLocation = (latitude !== null && longitude !== null)
+                ? { lat: latitude, lng: longitude }
+                : null;
+
+            const agentResult = await performAgentSearch(query, userLocation, debug);
+            return res.status(200).json(agentResult);
+        }
+
         if (mode === 'free') {
             // Use semantic-only search when location isn't available
             const hasLocation = latitude !== null && longitude !== null;

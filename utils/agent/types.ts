@@ -259,5 +259,5 @@ export const AGENT_CONFIG = {
   TOP_N_RESULTS: 10,
 
   /** Cohere model for parsing and ranking */
-  LLM_MODEL: 'command-r',
+  LLM_MODEL: 'command-a-03-2025',
 } as const;
