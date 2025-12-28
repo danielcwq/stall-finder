@@ -22,6 +22,14 @@ export interface ParsedQuery {
   /** True if user said "near me", "nearby", "around here" */
   use_current_location: boolean;
 
+  /** How user wants location handled:
+   * - "closest": Find THE nearest results, no radius cap (sort by distance)
+   * - "nearby": Within reasonable radius (5km default)
+   * - "in_area": Tight radius around named location (2km default)
+   * - null: No location preference
+   */
+  location_intent: 'closest' | 'nearby' | 'in_area' | null;
+
   /** Cuisine type if mentioned (e.g., "Chinese", "Malay") */
   cuisine: string | null;
 
@@ -249,8 +257,16 @@ export interface TraceSummary {
 // ============================================
 
 export const AGENT_CONFIG = {
-  /** Default search radius in kilometers */
-  DEFAULT_RADIUS_KM: 2,
+  /** Default search radius in kilometers (fallback) */
+  DEFAULT_RADIUS_KM: 5,
+
+  /** Radius for "nearby" intent (near me, around here) */
+  NEARBY_RADIUS_KM: 5,
+
+  /** Radius for "in_area" intent (in Bugis, at Orchard) */
+  IN_AREA_RADIUS_KM: 2,
+
+  /** "closest" intent uses no radius cap - just sort by distance */
 
   /** Maximum candidates to send to LLM for ranking */
   MAX_RANKING_CANDIDATES: 50,
