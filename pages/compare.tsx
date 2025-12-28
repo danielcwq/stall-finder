@@ -2,7 +2,7 @@ import { useState, useEffect, Fragment } from 'react';
 import { trackSearch, trackResultClick } from '../utils/analytics';
 import useLocation from '../hooks/useLocation';
 import SearchTabs from '../components/SearchTabs';
-import ProductionFreeSearch from '../components/ProductionFreeSearch';
+import FreeSearch from '../components/FreeSearch';
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 
@@ -20,6 +20,9 @@ export default function Home() {
     const [affordabilityValue, setAffordabilityValue] = useState(2); // Default to 2 ($$)
     const [comments, setComments] = useState('');
     const [results, setResults] = useState<any[]>([]);
+    const [standardResults, setStandardResults] = useState<any[]>([]);
+    const [rerankedResults, setRerankedResults] = useState<any[]>([]);
+    const [compareMode, setCompareMode] = useState(false);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'guided' | 'free'>('guided');
@@ -141,21 +144,31 @@ export default function Home() {
         }
     };
 
-    const handleFreeSearch = async (query: string) => {
+    // State for agent search metadata
+    const [agentMetadata, setAgentMetadata] = useState<{
+        parsed?: any;
+        reasoning?: string;
+        summary?: any;
+    } | null>(null);
+
+    const handleFreeSearch = async (query: string, compare: boolean = false, useAgent: boolean = false) => {
         setLoading(true);
         setError(null);
         setResults([]);
+        setStandardResults([]);
+        setRerankedResults([]);
+        setCompareMode(compare);
+        setAgentMetadata(null);
 
         try {
-            // Always use rerank for production
             const response = await fetch('/api/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     query,
                     mode: 'free',
-                    compare: true,  // Request reranked results
-                    useAgent: false,
+                    compare,
+                    useAgent,
                     latitude: location ? location.latitude : null,
                     longitude: location ? location.longitude : null,
                 }),
@@ -164,13 +177,36 @@ export default function Home() {
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
 
-            // Use reranked results (or fall back to standard if available)
-            if (data.reranked) {
-                setResults(data.reranked);
-                trackSearch(query, 'free-rerank', data.reranked.length);
+            if (useAgent && data.results) {
+                // Agent mode: response has { results, parsed, reasoning, summary }
+                setResults(data.results);
+                setAgentMetadata({
+                    parsed: data.parsed,
+                    reasoning: data.reasoning,
+                    summary: data.summary,
+                });
+                trackSearch(query, 'free-agent', data.results.length);
+
+                // Log the search
+                logSearch({
+                    search_mode: 'free-agent',
+                    query,
+                    cuisine: data.parsed?.cuisine || null,
+                    proximity: null,
+                    affordability: data.parsed?.price || null,
+                    comments: null,
+                    latitude: location ? location.latitude : null,
+                    longitude: location ? location.longitude : null,
+                    results_count: data.results.length
+                });
+            } else if (compare && data.standard && data.reranked) {
+                // Compare mode: set both result sets
+                setStandardResults(data.standard);
+                setRerankedResults(data.reranked);
+                trackSearch(query, 'free-compare', data.standard.length);
 
                 logSearch({
-                    search_mode: 'free-rerank',
+                    search_mode: 'free-compare',
                     query,
                     cuisine: null,
                     proximity: null,
@@ -178,10 +214,10 @@ export default function Home() {
                     comments: null,
                     latitude: location ? location.latitude : null,
                     longitude: location ? location.longitude : null,
-                    results_count: data.reranked.length
+                    results_count: data.standard?.length
                 });
             } else {
-                // Fallback to standard results
+                // Normal mode: set single result set
                 setResults(data);
                 trackSearch(query, 'free', data.length);
 
@@ -205,6 +241,8 @@ export default function Home() {
     };
 
 
+    const [guidedCompareMode, setGuidedCompareMode] = useState(false);
+
     const handleGuidedSearch = async () => {
         if (!location) {
             setError('Location is required for search. Please allow location access.');
@@ -214,15 +252,17 @@ export default function Home() {
         setLoading(true);
         setError(null);
         setResults([]);
+        setStandardResults([]);
+        setRerankedResults([]);
+        setCompareMode(guidedCompareMode);
 
         try {
-            // Always use rerank for production
             const response = await fetch('/api/search', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     mode: 'guided',
-                    compare: true,  // Request reranked results
+                    compare: guidedCompareMode,
                     latitude: location.latitude,
                     longitude: location.longitude,
                     cuisine,
@@ -235,15 +275,18 @@ export default function Home() {
             if (!response.ok) throw new Error('Search failed');
             const data = await response.json();
 
-            // Use reranked results (or fall back to standard if available)
-            if (data.reranked) {
-                setResults(data.reranked);
+            if (guidedCompareMode && data.standard && data.reranked) {
+                // Compare mode: set both result sets
+                setStandardResults(data.standard);
+                setRerankedResults(data.reranked);
+                // Track the search event
                 trackSearch(
                     `Cuisine: ${cuisine}, Proximity: ${proximity}, Affordability: ${affordability}, Comments: ${comments}`,
-                    'guided-rerank',
-                    data.reranked.length
+                    'guided-compare',
+                    data.standard.length
                 );
             } else {
+                // Normal mode: set single result set
                 setResults(data);
                 trackSearch(
                     `Cuisine: ${cuisine}, Proximity: ${proximity}, Affordability: ${affordability}, Comments: ${comments}`,
@@ -254,7 +297,7 @@ export default function Home() {
 
             // Log the search to Supabase
             logSearch({
-                search_mode: 'guided-rerank',
+                search_mode: guidedCompareMode ? 'guided-compare' : 'guided',
                 query: null,
                 cuisine,
                 proximity,
@@ -262,7 +305,7 @@ export default function Home() {
                 comments,
                 latitude: location.latitude,
                 longitude: location.longitude,
-                results_count: data.reranked?.length || data.length
+                results_count: guidedCompareMode ? data.standard?.length : data.length
             });
         } catch (err) {
             setError('An error occurred. Please try again.');
@@ -275,7 +318,10 @@ export default function Home() {
         <div className="flex flex-col items-center min-h-screen p-4 bg-gray-100">
             {/* Static Header with Explanation */}
             <div className="mb-6 text-center">
-                <h1 className="text-2xl font-bold mb-1">Ho Jiak Bo?</h1>
+                <div className="flex items-center justify-center gap-2 mb-1">
+                    <h1 className="text-2xl font-bold">Ho Jiak Bo?</h1>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">A/B Compare</span>
+                </div>
                 <button
                     onClick={() => setShowExplanation(!showExplanation)}
                     className="text-sm text-blue-600 hover:underline mb-2 flex items-center justify-center mx-auto"
@@ -299,8 +345,8 @@ export default function Home() {
 
                 {/* Navigation Links */}
                 <div className="mt-3 flex justify-center gap-4">
-                    <Link href="/compare" className="text-xs text-gray-500 hover:text-blue-600 transition">
-                        A/B Compare
+                    <Link href="/" className="text-xs text-gray-500 hover:text-blue-600 transition">
+                        Home
                     </Link>
                     <span className="text-xs text-gray-300">|</span>
                     <Link href="/agent" className="text-xs text-gray-500 hover:text-purple-600 transition">
@@ -459,17 +505,38 @@ export default function Home() {
                         />
                     </div>
 
+                    {/* Compare Mode Toggle */}
+                    <div className="flex items-center justify-between p-3 bg-gray-50 rounded-md border">
+                        <div className="flex flex-col">
+                            <span className="text-sm font-medium text-gray-700">A/B Compare Mode</span>
+                            <span className="text-xs text-gray-500">Compare standard vs Cohere rerank</span>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={() => setGuidedCompareMode(!guidedCompareMode)}
+                            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                guidedCompareMode ? 'bg-blue-600' : 'bg-gray-300'
+                            }`}
+                        >
+                            <span
+                                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                                    guidedCompareMode ? 'translate-x-6' : 'translate-x-1'
+                                }`}
+                            />
+                        </button>
+                    </div>
+
                     <button
                         type="button"
                         onClick={handleGuidedSearch}
                         className="w-full bg-blue-600 text-white p-2 rounded-md hover:bg-blue-700 transition"
                         disabled={loading}
                     >
-                        {loading ? 'Searching...' : 'Search'}
+                        {loading ? 'Searching...' : guidedCompareMode ? 'Compare Search Methods' : 'Search'}
                     </button>
                 </form>
             ) : (
-                <ProductionFreeSearch onSearch={handleFreeSearch} loading={loading} />
+                <FreeSearch onSearch={handleFreeSearch} loading={loading} />
             )}
 
             {loading && (
@@ -483,9 +550,177 @@ export default function Home() {
             )}
             {error && <div className="mt-4 text-red-500 text-center">{error}</div>}
 
-            {/* Results */}
-            {results.length > 0 ? (
+            {/* Comparison Mode: Side-by-side results */}
+            {compareMode && (standardResults.length > 0 || rerankedResults.length > 0) ? (
+                <div className="mt-6 w-full max-w-5xl">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* Standard Results Column */}
+                        <div>
+                            <h3 className="text-lg font-bold mb-3 text-center bg-gray-200 p-2 rounded-t-md">
+                                Standard Search
+                                <span className="block text-xs font-normal text-gray-600">
+                                    (Embedding + Recency)
+                                </span>
+                            </h3>
+                            <div className="space-y-3">
+                                {standardResults.map((stall, index) => (
+                                    <div
+                                        key={`standard-${stall.place_id}`}
+                                        className="p-3 bg-white rounded-md shadow border-l-4 border-gray-400"
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <span className="bg-gray-200 text-gray-700 text-xs font-bold px-2 py-1 rounded">
+                                                #{index + 1}
+                                            </span>
+                                            <div className="flex-1">
+                                                <h2 className="text-md font-semibold">{stall.name}</h2>
+                                                <p className="text-xs text-gray-600">{stall.cuisine} · {stall.affordability}</p>
+                                                {stall.similarity && (
+                                                    <p className="text-xs text-gray-500">
+                                                        Similarity: {(stall.similarity * 100).toFixed(1)}%
+                                                    </p>
+                                                )}
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    <a
+                                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-500 hover:underline"
+                                                    >
+                                                        {stall.location || "View on Maps"}
+                                                    </a>
+                                                </p>
+                                                {stall.source && (
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Source: {stall.source.split(',').map((src, idx) => {
+                                                            const urls = stall.source_url?.split(';') || [];
+                                                            const url = idx < urls.length ? urls[idx].trim() : '';
+                                                            return (
+                                                                <Fragment key={idx}>
+                                                                    {idx > 0 && ', '}
+                                                                    {url ? (
+                                                                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                                                            {src.trim()}
+                                                                        </a>
+                                                                    ) : src.trim()}
+                                                                </Fragment>
+                                                            );
+                                                        })}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Reranked Results Column */}
+                        <div>
+                            <h3 className="text-lg font-bold mb-3 text-center bg-blue-100 p-2 rounded-t-md">
+                                Cohere Rerank
+                                <span className="block text-xs font-normal text-blue-600">
+                                    (Cross-encoder reranking)
+                                </span>
+                            </h3>
+                            <div className="space-y-3">
+                                {rerankedResults.map((stall, index) => (
+                                    <div
+                                        key={`reranked-${stall.place_id}`}
+                                        className="p-3 bg-white rounded-md shadow border-l-4 border-blue-500"
+                                    >
+                                        <div className="flex items-start gap-2">
+                                            <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded">
+                                                #{index + 1}
+                                            </span>
+                                            <div className="flex-1">
+                                                <h2 className="text-md font-semibold">{stall.name}</h2>
+                                                <p className="text-xs text-gray-600">{stall.cuisine} · {stall.affordability}</p>
+                                                {stall.cohereScore !== undefined && (
+                                                    <p className="text-xs text-blue-600">
+                                                        Rerank Score: {(stall.cohereScore * 100).toFixed(1)}%
+                                                    </p>
+                                                )}
+                                                <p className="text-xs text-gray-600 mt-1">
+                                                    <a
+                                                        href={`https://maps.google.com/maps?q=${encodeURIComponent(stall.name)}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        className="text-blue-500 hover:underline"
+                                                    >
+                                                        {stall.location || "View on Maps"}
+                                                    </a>
+                                                </p>
+                                                {stall.source && (
+                                                    <p className="text-xs text-gray-500 mt-1">
+                                                        Source: {stall.source.split(',').map((src, idx) => {
+                                                            const urls = stall.source_url?.split(';') || [];
+                                                            const url = idx < urls.length ? urls[idx].trim() : '';
+                                                            return (
+                                                                <Fragment key={idx}>
+                                                                    {idx > 0 && ', '}
+                                                                    {url ? (
+                                                                        <a href={url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                                                                            {src.trim()}
+                                                                        </a>
+                                                                    ) : src.trim()}
+                                                                </Fragment>
+                                                            );
+                                                        })}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            ) : results.length > 0 ? (
+                /* Normal Mode: Single column results */
                 <div className="mt-6 w-full max-w-md space-y-4">
+                    {/* Agent Search Metadata Panel */}
+                    {agentMetadata && (
+                        <div className="p-4 bg-purple-50 border border-purple-200 rounded-md">
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="text-xs bg-purple-200 text-purple-700 px-2 py-0.5 rounded font-medium">
+                                    Agent Search
+                                </span>
+                                {agentMetadata.summary && (
+                                    <span className="text-xs text-purple-600">
+                                        {agentMetadata.summary.timings?.total_ms}ms
+                                    </span>
+                                )}
+                            </div>
+                            {agentMetadata.parsed && (
+                                <div className="text-xs text-purple-700 mb-2">
+                                    <span className="font-medium">Understood: </span>
+                                    "{agentMetadata.parsed.food_query}"
+                                    {agentMetadata.parsed.location_name && (
+                                        <span> near <strong>{agentMetadata.parsed.location_name}</strong></span>
+                                    )}
+                                    {agentMetadata.parsed.use_current_location && (
+                                        <span> <strong>near you</strong></span>
+                                    )}
+                                    {agentMetadata.parsed.cuisine && (
+                                        <span> ({agentMetadata.parsed.cuisine})</span>
+                                    )}
+                                    {agentMetadata.parsed.price && (
+                                        <span> [{agentMetadata.parsed.price}]</span>
+                                    )}
+                                </div>
+                            )}
+                            {agentMetadata.reasoning && (
+                                <details className="text-xs">
+                                    <summary className="text-purple-600 cursor-pointer font-medium">
+                                        Why these results?
+                                    </summary>
+                                    <p className="mt-1 text-purple-700">{agentMetadata.reasoning}</p>
+                                </details>
+                            )}
+                        </div>
+                    )}
                     {results.map((stall, index) => (
                         <div
                             key={stall.place_id}
@@ -579,7 +814,7 @@ export default function Home() {
                     ))}
                 </div>
             ) : (
-                !loading && !error && <div className="mt-4 text-center">No results found. Try adjusting your search criteria.</div>
+                !loading && !error && !compareMode && <div className="mt-4 text-center">No results found. Try adjusting your search criteria.</div>
             )}
             <div className="mt-8 mb-4">
                 <a
